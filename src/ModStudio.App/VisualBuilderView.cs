@@ -105,6 +105,7 @@ internal sealed class VisualBuilderView : TableBuilderView<BuilderEntry, VisualB
     {
         slots.Clear();
         root.Children.Add(Hero());
+        if (Visuals != null) root.Children.Add(VisualLinkCard());
         root.Children.Add(IdentityCard(table));
         root.Children.Add(PropertiesCard(table, false));
         if (IsSetTable) root.Children.Add(PropertiesCard(table, true));

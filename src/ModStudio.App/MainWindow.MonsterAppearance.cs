@@ -102,7 +102,7 @@ public partial class MainWindow
         var entry = appearance.Entries.FirstOrDefault(e => appearanceChoices.TryGetValue(choiceKey, out var chosen) && e.Label == chosen)
             ?? appearance.Entries.FirstOrDefault(e => !e.Custom && e.Name == appearance.DefaultEntry) ?? appearance.Entries[0];
 
-        var usage = $"{appearance.FamilyRows} monstats row{(appearance.FamilyRows == 1 ? "" : "s")} use BaseId {appearance.BaseId}";
+        var usage = $"{appearance.FamilyRows} monstats row{(appearance.FamilyRows == 1 ? "" : "s")} load HD unit {appearance.UnitName}";
         panel.Children.Add(new SelectableTextBlock { Text = usage + (appearance.DefaultEntry != null ? $"; TransLvl {appearance.TransLvl} picks {appearance.DefaultEntry}." : "."), Foreground = AppearanceMuted, FontSize = 11, TextWrapping = TextWrapping.Wrap });
         if (appearance.SharedWith.Length > 0)
             panel.Children.Add(new SelectableTextBlock { Text = $"This variant file is also loaded by {string.Join(", ", appearance.SharedWith)}. Saving an edit recolours them too.", Foreground = Brushes.Salmon, FontSize = 12, TextWrapping = TextWrapping.Wrap });

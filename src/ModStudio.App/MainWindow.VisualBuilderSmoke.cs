@@ -112,11 +112,25 @@ public partial class MainWindow
         // Undo restores the fields as well as the cells; the table view shows the same row.
         while (pane.Document.CanUndo) pane.Document.Undo();
         Require(((TextBox)view.Editor("max1")!).Text == "4" && ((AutoCompleteBox)view.Editor("prop2")!).Text == "", "Undo did not restore the builder's fields.");
+        // The linked-files card follows the row to its uniques.json entry and the sprite that names.
+        await Until(() => view.LastLink is { Key: "the_gnasher", Value: "axe/the_gnasher", Target: not null }, "The linked HD files do not follow The Gnasher to its picture.",
+            () => string.Join(" ", view.LastLink?.Notes ?? []));
         view.Search.Text = "";
         await Until(() => view.Results.Count == 3, "Clearing the search did not list every item again.");
         var added = view.Results.Count;
+        // A new unique asks for its index and picture first; with no picture of its own it shows its base item's.
         view.GetVisualDescendants().OfType<Button>().First(b => b.Content as string == "+ New unique").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-        Require(pane.Document.Table.Records.Count == 4 && view.SelectedRow == 3 && pane.Document.Table.Cell(3, "index") == "New Unique", "New unique did not add and open a row.");
+        await Until(() => OwnedWindows.OfType<NewVisualWindow>().Any(), "New unique did not open the visual form.");
+        var form = OwnedWindows.OfType<NewVisualWindow>().Single();
+        await form.PendingChoices;
+        Require(form.IdBox.Text == "New Unique" && form.UseExisting.IsEnabled, "The visual form does not start from the default index with the project's pictures.");
+        form.None.IsChecked = true;
+        await Until(() => form.CreateButton.IsEnabled && form.SummaryText.Contains("add a row with index \"New Unique\"") && form.SummaryText.Contains("base item's picture"),
+            "The visual form did not offer a new unique with its base item's picture.", () => form.ErrorText + " | " + form.SummaryText);
+        form.CreateButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await Until(() => pane.Document.Table.Records.Count == 4, "Creating the unique did not add a row.", () => form.ErrorText);
+        Activate(); Focus(); await Task.Delay(100);
+        Require(view.SelectedRow == 3 && pane.Document.Table.Cell(3, "index") == "New Unique", "New unique did not add and open a row.");
         await Until(() => view.Results.Count == added + 1, "The new row is not listed.");
         pane.Document.Undo();
         Require(pane.Document.Table.Records.Count == 3 && view.SelectedRow < 0, "Undoing a new row left the builder editing it.");

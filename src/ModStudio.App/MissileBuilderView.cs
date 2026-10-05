@@ -269,7 +269,8 @@ internal sealed class MissileBuilderView : TableBuilderView<MissileEntry, Missil
         artNote = new TextBlock { FontSize = 11, Foreground = Muted, TextWrapping = TextWrapping.Wrap };
         panel.Children.Add(artNote);
         hdHost = new ContentControl();
-        var hdCard = Card("HD", hdHost, note: "HD mode ignores CelFile and the legacy animation: it draws the particle effect data/hd/missiles/missiles.json names for this missile. Choose it here.");
+        var hdCard = Card("HD", new StackPanel { Spacing = 10, Children = { LinkedFilesView(), hdHost } },
+            note: "HD mode ignores CelFile and the legacy animation: it draws the particle effect data/hd/missiles/missiles.json names for this missile. The chain shows how the row reaches it; choose it here.");
         hdCard.VerticalAlignment = VerticalAlignment.Top; hdCard.MaxWidth = 380;
         // The HD card sits beside the flight when there is room and under it when there is not.
         return new WrapPanel { Children = { panel, hdCard }, ItemSpacing = 16, LineSpacing = 12, Orientation = Orientation.Horizontal };
@@ -386,10 +387,10 @@ internal sealed class MissileBuilderView : TableBuilderView<MissileEntry, Missil
     {
         var panel = new StackPanel { Spacing = 4 };
         TextBlock Line(string text, IBrush? brush = null) => new SelectableTextBlock { Text = text, FontSize = 12, Foreground = brush ?? WhiteBrush, TextWrapping = TextWrapping.Wrap };
-        if (hd.Unit != null) panel.Children.Add(Line($"Effect: {hd.Unit}" + (hd.File != null ? $" · {hd.File.Origin}" : "") + (hd.Key != null && hd.Map != null ? $" · entry \"{hd.Key}\" in missiles.json ({hd.Map.Origin})" : "")));
+        // The chain above names the entry and the unit; this lists what the unit loads.
         foreach (var (label, files) in new[] { ("Particles", hd.Particles), ("Models", hd.Models), ("Textures", hd.Textures) })
             if (files.Length > 0) panel.Children.Add(Line($"{label}: " + string.Join(", ", files.Select(Path.GetFileName)), Muted));
-        foreach (var note in hd.Notes) panel.Children.Add(Line(note, hd.File == null ? Brushes.Salmon : Muted));
+        if (hd.File != null) foreach (var note in hd.Notes) panel.Children.Add(Line(note, Muted));
         if (hd.Map == null) return panel;
 
         var units = catalog?.HdUnits ?? [];
@@ -430,7 +431,7 @@ internal sealed class MissileBuilderView : TableBuilderView<MissileEntry, Missil
             if (status != null) status.Text = "Saving…";
             var written = await Task.Run(() => MissileGraphics.SaveHdUnit(project, map, id, unit));
             SetStatus((unit.Length == 0 ? $"Removed {id}'s HD effect from " : $"{id} now uses {unit} in HD · saved ") + Path.GetRelativePath(project.Root, written) + (map.InProject ? "" : " (copied from the game data)"));
-            artKey = null; RequestArt(); await PendingArt;
+            artKey = null; RequestArt(); RefreshLinkedFiles(); await PendingArt;
         }
         catch (Exception ex) { if (status != null) status.Text = ex.Message; SetStatus(ex.Message, true); }
     }

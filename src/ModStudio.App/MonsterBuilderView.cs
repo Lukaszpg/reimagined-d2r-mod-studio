@@ -191,6 +191,7 @@ internal sealed class MonsterBuilderView : TableBuilderView<MonsterEntry, Monste
     {
         linked.Clear();
         root.Children.Add(Hero());
+        root.Children.Add(VisualLinkCard());
         foreach (var group in Groups)
         {
             var fields = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 12, LineSpacing = 10 };

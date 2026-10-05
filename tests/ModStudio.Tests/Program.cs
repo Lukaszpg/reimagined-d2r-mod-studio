@@ -33,6 +33,7 @@ try
     StatPreviewTests.Run(root, Check, Throws);
     DropTests.Run(root, Check, Throws);
     MonsterAppearanceTests.Run(root, Check, Throws);
+    HdVisualsTests.Run(root, Check, Throws);
     VisualBuilderTests.Run(root, Check, Throws);
     MissileBuilderTests.Run(root, Check, Throws);
     MonsterBuilderTests.Run(root, Check, Throws);

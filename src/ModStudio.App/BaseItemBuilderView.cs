@@ -119,6 +119,7 @@ internal sealed class BaseItemBuilderView : TableBuilderView<BaseItemEntry, Base
     protected override void BuildCards(StackPanel root, TableData table)
     {
         root.Children.Add(Hero());
+        root.Children.Add(VisualLinkCard());
         tiers = new ContentControl(); uses = new ContentControl();
         root.Children.Add(Card("Related", new StackPanel { Spacing = 10, Children = { tiers, uses } },
             note: "The other tiers of this item, and the uniques and sets made on it. Open one to edit it in its own builder."));

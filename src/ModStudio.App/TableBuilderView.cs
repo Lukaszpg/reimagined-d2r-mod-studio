@@ -144,8 +144,10 @@ internal abstract class TableBuilderView<TEntry, TCatalog> : Grid, IVisualBuilde
             DockPanel.SetDock(search, Dock.Top); side.Children.Add(search);
             var tools = new DockPanel { Margin = new(0, 6, 0, 6) };
             var add = new Button { Content = AddLabel, Padding = new(8, 3), MinHeight = 0, FontSize = 12, Margin = new(0) };
-            ToolTip.SetTip(add, "Adds a row at the bottom of the table and opens it here. Undo removes it again.");
-            add.Click += (_, _) => Try(AddRow);
+            ToolTip.SetTip(add, Visuals != null
+                ? "Asks for the new row's id and what HD draws for it (an existing visual, a copy of one, or none yet), lists the files it will write, then adds the row at the bottom of the table and opens it here."
+                : "Adds a row at the bottom of the table and opens it here. Undo removes it again.");
+            add.Click += async (_, _) => { try { await AddRowAsync(); } catch (Exception ex) { SetStatus(ex.Message, true); } };
             DockPanel.SetDock(add, Dock.Right); tools.Children.Add(add); tools.Children.Add(resultCount);
             DockPanel.SetDock(tools, Dock.Top); side.Children.Add(tools);
             results.ItemTemplate = new FuncDataTemplate<TEntry>((entry, _) => entry == null ? new TextBlock() : EntryView(entry));
@@ -204,6 +206,7 @@ internal abstract class TableBuilderView<TEntry, TCatalog> : Grid, IVisualBuilde
     public void Invalidate()
     {
         if (!Visible) { stale = true; return; }
+        linkKey = null; RefreshLink();
         OnInvalidate(); ScheduleCatalog(true); SchedulePreview();
     }
 
@@ -272,16 +275,158 @@ internal abstract class TableBuilderView<TEntry, TCatalog> : Grid, IVisualBuilde
         finally { selecting = false; }
     }
 
-    private void AddRow()
+    /// <summary>
+    /// Adds a row. For a table drawn by an HD list (missiles, monsters, items) the visual form asks for its id and visual first,
+    /// lists what it will write, and writes the HD files before the row is added; other tables add the row straight away.
+    /// </summary>
+    internal async Task AddRowAsync()
     {
         var table = Table; Require(table != null, "Apply valid source before adding rows.");
-        int row = table!.Records.Count;
-        Document.InsertRows(row, 1, [NewRow(table)]);
+        var spec = Visuals; var project = host.Project();
+        if (spec == null || project == null || table!.ColumnIndex(spec.IdColumn) < 0 || TopLevel.GetTopLevel(this) is not Window owner) { InsertRow(table!, null); return; }
+        var defaults = NewRow(table);
+        var suggested = FreeId(table, spec.IdColumn, defaults.S(spec.IdColumn));
+        var window = new NewVisualWindow(new(spec, project, host.GameData, AddLabel.TrimStart('+', ' '), null, suggested, id => IdProblem(table, spec, id), null, host.ChooseGameData),
+            async result =>
+            {
+                Require(Table == table, "The table changed while the form was open; try again.");
+                var written = result.Plan == null ? [] : await ApplyVisualAsync(project, result.Plan);
+                InsertRow(table, result.Id);
+                SetStatus($"Added {spec.IdColumn} \"{result.Id}\" at the bottom of the table" + (written.Length == 0 ? "." : " · wrote " + string.Join(", ", written.Select(f => Path.GetRelativePath(project.Root, f).Replace('\\', '/')))));
+            });
+        await window.ShowDialog(owner);
+    }
+
+    /// <summary>Adds the builder's new row with its id (and any default naming the default id, such as BaseId) and opens it.</summary>
+    private void InsertRow(TableData table, string? id)
+    {
+        var fields = NewRow(table);
+        if (id != null && Visuals is { } spec)
+        {
+            var placeholder = fields.S(spec.IdColumn);
+            foreach (var (column, value) in fields.ToArray())
+                if (column == spec.IdColumn || placeholder.Length > 0 && value is JsonValue v && v.TryGetValue<string>(out var text) && text == placeholder) fields[column] = id;
+        }
+        int row = table.Records.Count;
+        Document.InsertRows(row, 1, [fields]);
         search.Text = "";
         Select(row);
-        SetStatus("Added a row at the bottom of the table.");
+        if (id == null) SetStatus("Added a row at the bottom of the table.");
         FocusEditor(NameColumn);
     }
+
+    /// <summary>The default id, numbered when the table already has it (newmissile, newmissile2…).</summary>
+    private static string FreeId(TableData table, string column, string stem)
+    {
+        if (stem.Length == 0) return stem;
+        var used = Enumerable.Range(0, table.Records.Count).Select(i => table.Cell(i, column)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return Enumerable.Range(1, 999).Select(n => n == 1 ? stem : stem.Contains(' ') ? $"{stem} {n}" : $"{stem}{n}").FirstOrDefault(c => !used.Contains(c)) ?? stem;
+    }
+
+    /// <summary>Why a new row cannot take an id: empty, not one cell, or another row's (which would share its HD entry).</summary>
+    private static string? IdProblem(TableData table, VisualSpec spec, string id)
+    {
+        if (id.Length == 0) return $"Give the new row {spec.AnId}: the HD list finds it by that.";
+        if (id.Contains('\t') || id.Contains('\n') || id.Contains('\r')) return $"{spec.IdColumn} cannot hold tabs or line breaks.";
+        if (spec.Family == VisualFamily.BaseItem && id.Length > 4) return "Item codes are at most 4 characters.";
+        var key = ItemSprites.Key(id);
+        if (key.Length == 0) return $"{spec.IdColumn} needs a letter or digit: the HD list is keyed by them.";
+        int other = Enumerable.Range(0, table.Records.Count).FirstOrDefault(i => ItemSprites.Key(table.Cell(i, spec.IdColumn)) == key, -1);
+        return other < 0 ? null : $"Row {other} already has {spec.IdColumn} \"{table.Cell(other, spec.IdColumn)}\"{(table.Cell(other, spec.IdColumn) == id ? "" : ", which HD reads as the same key")}. Pick another.";
+    }
+
+    /// <summary>Writes a visual plan's files, refusing while one of them has unsaved edits in a tab. Returns the files written.</summary>
+    private async Task<string[]> ApplyVisualAsync(ModProject project, VisualPlan plan)
+    {
+        foreach (var change in plan.Changes)
+            Require(host.FindFile?.Invoke(Inside(project.Root, change.Relative)) is not { IsDirty: true }, $"Save or discard the open edits to {Path.GetFileName(change.Relative)} first.");
+        var gameData = host.GameData();
+        var written = await Task.Run(() => HdVisuals.Apply(project, gameData, plan));
+        linkKey = null;
+        return written;
+    }
+
+    // ── Linked HD files ────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The HD list that draws this table's rows; null for tables HD does not draw from a list.</summary>
+    protected VisualSpec? Visuals => VisualSpec.For(Table?.Name);
+    private ContentControl linkHost = new();
+    private string? linkKey;
+    private CancellationTokenSource? linkCancellation;
+    internal VisualLink? LastLink { get; private set; }
+    internal Task PendingLink { get; private set; } = Task.CompletedTask;
+
+    /// <summary>
+    /// The row → HD list entry → file chain, with a button to change the visual. A builder places it where it reads best
+    /// (in its own card, or inside an HD card it already has); it follows the row's id and the files on disk.
+    /// </summary>
+    protected Control LinkedFilesView()
+    {
+        linkHost = new ContentControl { Content = new TextBlock { Text = "Following the row to its HD files…", Foreground = Muted, FontSize = 12 } };
+        linkKey = null;
+        return linkHost;
+    }
+
+    /// <summary>The linked-files chain in a card of its own, titled for the table.</summary>
+    protected Control VisualLinkCard() => Card("Linked HD files", LinkedFilesView(), note: Visuals is { } spec
+        ? $"What HD draws for this row: its {spec.IdColumn} keys an entry in {spec.MapName}, which names the {spec.TargetNoun}. Change… points it at another {spec.Noun} or a new copy of one."
+        : null);
+
+    private void RefreshLink()
+    {
+        var spec = Visuals; var project = host.Project(); var table = Table; int row = SelectedRow;
+        if (spec == null || project == null || table == null || row < 0 || linkHost.Parent == null || table.ColumnIndex(spec.IdColumn) < 0) return;
+        var id = table.Cell(row, spec.IdColumn); var gameData = host.GameData();
+        var key = string.Join('|', project.Root, spec.Table, row, id, string.Join(';', gameData));
+        if (key == linkKey) return;
+        linkKey = key;
+        PendingLink = LoadLinkAsync(project, gameData, spec, table.Name, row, id);
+    }
+
+    private async Task LoadLinkAsync(ModProject project, IReadOnlyList<string> gameData, VisualSpec spec, string tableName, int row, string id)
+    {
+        linkCancellation?.Cancel();
+        var work = linkCancellation = new CancellationTokenSource(); var token = work.Token;
+        try
+        {
+            var link = await Task.Run(() => HdVisuals.Link(project, gameData, spec, id), token);
+            if (token.IsCancellationRequested) return;
+            LastLink = link;
+            var panel = new StackPanel { Spacing = 8 };
+            panel.Children.Add(VisualLinkView.Chain(link, tableName, row, host.OpenFileAt, SetStatus));
+            var change = new Button { Content = $"Change {spec.Noun}…", Padding = new(10, 3), MinHeight = 0, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Left, IsEnabled = id.Trim().Length > 0 };
+            ToolTip.SetTip(change, $"Point this row at another {spec.Noun}, or copy one into a new {spec.TargetNoun} for it. The form lists every file it will write first.");
+            change.Click += async (_, _) => { try { await ChangeVisualAsync(); } catch (Exception ex) { SetStatus(ex.Message, true); } };
+            panel.Children.Add(change);
+            linkHost.Content = panel;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex) { if (!token.IsCancellationRequested) linkHost.Content = new TextBlock { Text = "HD links unavailable: " + ex.Message, Foreground = Brushes.Salmon, TextWrapping = TextWrapping.Wrap }; }
+        finally { if (ReferenceEquals(linkCancellation, work)) linkCancellation = null; work.Dispose(); }
+    }
+
+    /// <summary>Opens the visual form for the picked row: the same choices as a new row, without adding one.</summary>
+    internal async Task ChangeVisualAsync()
+    {
+        var spec = Visuals; var project = host.Project(); var table = Table; int row = SelectedRow;
+        if (spec == null || project == null || table == null || row < 0 || TopLevel.GetTopLevel(this) is not Window owner) return;
+        var id = table.Cell(row, spec.IdColumn).Trim();
+        Require(id.Length > 0, $"Give the row {spec.AnId} first: the HD list finds it by that.");
+        var window = new NewVisualWindow(new(spec, project, host.GameData, $"{char.ToUpperInvariant(spec.Noun[0])}{spec.Noun[1..]} for {id}", id, id, _ => null, LastLink?.Id == id ? LastLink.Value : null, host.ChooseGameData),
+            async result =>
+            {
+                if (result.Plan == null) return;
+                var written = await ApplyVisualAsync(project, result.Plan);
+                SetStatus($"{id} now uses {result.Plan.Value} in HD · wrote " + string.Join(", ", written.Select(f => Path.GetRelativePath(project.Root, f).Replace('\\', '/'))));
+                OnVisualChanged();
+            });
+        await window.ShowDialog(owner);
+    }
+
+    /// <summary>The row's HD files changed: reload whatever shows them.</summary>
+    protected virtual void OnVisualChanged() { OnInvalidate(); linkKey = null; SyncEditors(); SchedulePreview(); }
+    /// <summary>The HD files were written by the builder itself: follow the chain again.</summary>
+    protected void RefreshLinkedFiles() { linkKey = null; RefreshLink(); }
 
     private void Duplicate()
     {
@@ -566,6 +711,7 @@ internal abstract class TableBuilderView<TEntry, TCatalog> : Grid, IVisualBuilde
             }
             OnSynced(table, row);
             UpdateTitle();
+            RefreshLink();
         }
         finally { loading = wasLoading; }
     }

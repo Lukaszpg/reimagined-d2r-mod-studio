@@ -30,10 +30,11 @@ public sealed record HdFile(string Relative, string Path, bool InProject, string
 }
 
 /// <summary>
-/// How a monstats row looks in HD: the unit JSON its BaseId names, the variant (colour) file that unit loads, and the entry
-/// its TransLvl picks. <see cref="SharedWith"/> names other units that load the same variant file, so an edit recolours them too.
+/// How a monstats row looks in HD: the unit JSON it loads (<see cref="UnitName"/>: its monsters.json entry, else its BaseId),
+/// the variant (colour) file that unit loads, and the entry its TransLvl picks. <see cref="FamilyRows"/> counts the monstats
+/// rows loading the same unit; <see cref="SharedWith"/> names other units that load the same variant file, so an edit recolours them too.
 /// </summary>
-public sealed record MonsterAppearance(string BaseId, string TransLvl, HdFile? Unit, HdFile? Variant, VariantEntry[] Entries, string? DefaultEntry,
+public sealed record MonsterAppearance(string UnitName, string TransLvl, HdFile? Unit, HdFile? Variant, VariantEntry[] Entries, string? DefaultEntry,
     string[] SharedWith, int FamilyRows, string[] Notes, string[] Issues);
 
 /// <summary>
@@ -110,17 +111,24 @@ public static class HdAppearance
 
     public static MonsterAppearance Resolve(ModProject project, IReadOnlyList<string> gameData, JsonObject monster, IEnumerable<JsonObject> monstats, CancellationToken token = default)
     {
-        var baseId = monster.S("BaseId") is { Length: > 0 } b ? b : monster.S("Id");
+        // data/hd/character/monsters.json names each monstats Id's unit (cowking loads cowking though its BaseId is hellbovine);
+        // a row it does not list falls back to its BaseId.
+        var listed = HdVisuals.MonsterUnits(project, gameData);
+        string UnitOf(JsonObject row) => listed.TryGetValue(ItemSprites.Key(row.S("Id")), out var mapped) ? mapped : row.S("BaseId") is { Length: > 0 } b ? b : row.S("Id");
+        var baseId = UnitOf(monster);
+        bool viaList = listed.ContainsKey(ItemSprites.Key(monster.S("Id")));
         var transLvl = monster.S("TransLvl");
         var notes = new List<string>(); var issues = new List<string>();
-        int family = monstats.Count(r => r.S("BaseId").Equals(baseId, StringComparison.OrdinalIgnoreCase));
+        var counts = monstats.GroupBy(UnitOf, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        int family = counts.GetValueOrDefault(baseId);
         HdFile? unit = null;
         foreach (var folder in UnitFolders)
             if ((unit = Find(project, gameData, $"{folder}/{baseId}.json")) != null) break;
         if (unit == null)
         {
             if (gameData.Count == 0) notes.Add($"No HD unit for {baseId} in the project. Choose your extracted game data folder to resolve base-game units.");
-            else issues.Add($"No HD unit JSON for BaseId {baseId} under data/hd/character/enemy or npc, in the project or the game data.");
+            else issues.Add(viaList ? $"monsters.json names unit {baseId} for {monster.S("Id")}, but there is no {baseId}.json under data/hd/character/enemy or npc, in the project or the game data."
+                : $"No HD unit JSON for BaseId {baseId} under data/hd/character/enemy or npc, in the project or the game data.");
             return new(baseId, transLvl, null, null, [], null, [], family, [.. notes], [.. issues]);
         }
         token.ThrowIfCancellationRequested();
@@ -145,7 +153,6 @@ public static class HdAppearance
         }
         token.ThrowIfCancellationRequested();
         var unitName = Path.GetFileNameWithoutExtension(unit.Path);
-        var counts = monstats.GroupBy(r => r.S("BaseId"), StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
         var shared = Units(project, gameData, token).Where(u => !u.Name.Equals(unitName, StringComparison.OrdinalIgnoreCase) && Same(u.Variant, variant.Relative))
             .Select(u => $"{u.Name} ({counts.GetValueOrDefault(u.Name)} monstats row{(counts.GetValueOrDefault(u.Name) == 1 ? "" : "s")})").Order(StringComparer.OrdinalIgnoreCase).ToArray();
         return new(baseId, transLvl, unit, variant, entries, chosen, shared, family, [.. notes], [.. issues]);

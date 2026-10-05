@@ -147,27 +147,7 @@ public static class MissileGraphics
         Require(ItemSprites.Key(missile).Length > 0, "The missile has no id.");
         unit = unit.Trim();
         Require(unit.Length == 0 || Regex.IsMatch(unit, "^[A-Za-z0-9_-]+$"), $"Not an HD missile unit name: {unit}");
-        var target = map.InProject ? map.Path : Inside(project.Root, MapPath);
-        var bytes = File.ReadAllBytes(map.Path);
-        Require(Hash(bytes) == map.Hash, $"{map.Relative} changed since the preview read it. Refresh the preview and apply the edit again.");
-        var text = Utf8.GetString(bytes);
-        bool bom = text.StartsWith('﻿');
-        var root = JsonNode.Parse(text.TrimStart('﻿'), null, Document.SourceJsonOptions) as JsonObject ?? throw new InvalidDataException($"{map.Relative} is not a JSON object.");
-        var squashed = ItemSprites.Key(missile);
-        var existing = root.Where(p => p.Value is JsonValue && ItemSprites.Key(p.Key) == squashed).Select(p => p.Key).FirstOrDefault();
-        if (unit.Length == 0) { if (existing != null) root.Remove(existing); }
-        else if (existing != null) root[existing] = unit;
-        else root[HdKey(missile)] = unit;
-        string output;
-        if (!text.Contains('\n')) output = root.ToJsonString(Compact);
-        else
-        {
-            output = Json(root);
-            if (text.Contains("\r\n")) output = output.Replace("\n", "\r\n");
-            if (!text.TrimEnd('﻿').EndsWith('\n')) output = output.TrimEnd('\r', '\n');
-        }
-        AtomicWrite(target, Utf8.GetBytes((bom ? "﻿" : "") + output), map.InProject ? map.Hash : null, requireAbsent: !map.InProject);
-        return target;
+        return HdVisuals.SaveEntry(project, VisualSpec.For("missiles")!, map, missile, unit.Length == 0 ? null : unit);
     }
 
     public static MissileRow[] Rows(TableData table) =>
