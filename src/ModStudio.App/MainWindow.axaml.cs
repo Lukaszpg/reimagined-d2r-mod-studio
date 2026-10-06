@@ -235,7 +235,7 @@ public partial class MainWindow : Window
         explorerSearchTimer.Stop(); ExplorerSearch.Text = ""; SetExplorerEntries(entries); ProfilePicker.ItemsSource = project.Profiles.ToArray(); ProfilePicker.SelectedItem = project.Profiles.Contains("standard") ? "standard" : project.Profiles.FirstOrDefault();
         watcher = new(project.Root) { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName, EnableRaisingEvents = true };
         watcher.Changed += OnExternalChange; watcher.Created += OnExternalChange; watcher.Deleted += OnExternalChange; watcher.Renamed += OnExternalChange;
-        RefreshLaunchTargets(); RefreshStatus(); Status.Text = "Project ready. Single-click to preview; double-click to keep a file open."; await RefreshRemoteDeploymentStatusAsync(true);
+        RefreshLaunchTargets(); RefreshStatus(); Status.Text = "Project ready. Single-click to preview; double-click to keep a file open.";
         if (!Program.Arguments.Contains("--smoke"))
         {
             try
@@ -246,6 +246,7 @@ public partial class MainWindow : Window
                 await ApplyDetectedGameDefaultsAsync();
                 StartSearchIndexing(nextProject);
                 if (!preferences.HasIntroduced(project.Root)) await ShowSettingsAsync();
+                await RefreshRemoteDeploymentStatusAsync(true);
             }
             catch (Exception ex) { ShowError(ex); }
         }
@@ -666,6 +667,7 @@ public partial class MainWindow : Window
                 preferences.MarkIntroduced(project.Root, StudioPreferences.DefaultFile);
             }
             await dialog.ShowDialog(this);
+            await RefreshRemoteDeploymentStatusAsync(true);
         }
         catch (Exception ex) { ShowError(ex); }
     }
