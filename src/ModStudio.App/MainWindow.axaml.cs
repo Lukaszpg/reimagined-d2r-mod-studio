@@ -114,12 +114,23 @@ public partial class MainWindow : Window
     {
         Output.Text = (Output.Text ?? "") + DateTime.Now.ToString("HH:mm:ss") + "  " + text + Environment.NewLine;
         if (Output.Text.Length > 60000) Output.Text = Output.Text[^50000..];
+        ScrollLogToBottom();
+    }
+    private void ScrollLogToBottom()
+    {
+        Output.CaretIndex = Output.Text?.Length ?? 0;
+        Dispatcher.UIThread.Post(() =>
+        {
+            var scroll = Output.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+            if (scroll != null) scroll.Offset = new Vector(scroll.Offset.X, Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height));
+        }, DispatcherPriority.Background);
     }
     /// <summary>Every status-bar message is also kept in the Log tab, so a message that was only glimpsed can be read back later; clicking the status bar opens that tab.</summary>
     private void InitializeLog()
     {
         Status.PropertyChanged += (_, e) => { if (e.Property == TextBlock.TextProperty && !logging && Status.Text is { Length: > 0 } text) AppendLog(text); };
         Status.PointerPressed += (_, _) => ShowBottomTab(1);
+        BottomTabs.SelectionChanged += (_, _) => { if (BottomTabs.SelectedIndex == 1) ScrollLogToBottom(); };
     }
     private void ShowError(Exception e) { if (Program.Arguments.Contains("--smoke")) Console.Error.WriteLine(e); logging = true; try { Status.Text = e.Message; } finally { logging = false; } AppendLog("Error: " + e.Message); ShowBottomTab(1); }
     private async Task<string?> PickFolderAsync(string title)
