@@ -41,7 +41,8 @@ public static class RemoteCMakeBuildService
         // FetchContent/dependency and compiler caches across repeated Build/Deploy clicks.
         Directory.CreateDirectory(build);
 
-        var cmake = ResolveCMake(settings.CMakeExecutable);
+        var cmake = ResolveCMake();
+        progress?.Invoke($"CMake detected: {cmake}");
         var configure = new List<string> { "-S", cmakeSource, "-B", build };
         if (OperatingSystem.IsWindows()) { configure.Add("-A"); configure.Add("x64"); }
         configure.AddRange(settings.ConfigureArguments ?? []);
@@ -141,15 +142,8 @@ public static class RemoteCMakeBuildService
         throw new FileNotFoundException($"CMake target completed but charsi-package.json output '{dllFileName}' was not found under {buildRoot}.");
     }
 
-    private static string ResolveCMake(string configured)
+    internal static string ResolveCMake()
     {
-        configured = configured.Trim();
-        if (configured.Length > 0)
-        {
-            if (Path.IsPathRooted(configured)) Require(File.Exists(configured), "Configured CMake executable does not exist.");
-            return configured;
-        }
-
         var executable = OperatingSystem.IsWindows() ? "cmake.exe" : "cmake";
         foreach (var folder in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
@@ -175,7 +169,7 @@ public static class RemoteCMakeBuildService
                     }
             }
         }
-        throw new FileNotFoundException("CMake was not found. Install CMake/Visual Studio Build Tools or set the CMake executable in Build settings.");
+        throw new FileNotFoundException("CMake was not found. Install CMake or Visual Studio with C++/CMake tools. Mod Studio detects CMake automatically from PATH and Visual Studio installations.");
     }
 
     private static async Task RunProcessAsync(string executable, IEnumerable<string> arguments, string workingDirectory, CancellationToken token, Action<string>? progress)
