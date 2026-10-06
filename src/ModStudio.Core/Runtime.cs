@@ -235,7 +235,8 @@ public sealed class RunController : IDisposable
         foreach (var arg in new[] { "-mod", modName, "-txt" }.Concat(settings.Arguments ?? [])) start.ArgumentList.Add(arg);
         return start;
     }
-    public async Task<BuildResult> ExecuteAsync(ModProject project, string profile, RunSettings settings, bool deploy, bool play, CancellationToken token, Action<string>? progress = null, Func<DeploymentOwnershipConflict, Task<bool>>? reviewOwnership = null)
+    public async Task<BuildResult> ExecuteAsync(ModProject project, string profile, RunSettings settings, bool deploy, bool play, CancellationToken token, Action<string>? progress = null,
+        Func<DeploymentOwnershipConflict, Task<bool>>? reviewOwnership = null, Func<BuildResult, CancellationToken, Task<BuildResult>>? prepareDeployment = null)
     {
         Require(await gate.WaitAsync(0, token), "Another build/deployment is already running.");
         try
