@@ -18,9 +18,6 @@ internal static class RemoteBuildTests
             "https://github.com/Lukaszpg/d2rl-sanctuary-of-exile.git",
             "pull-request",
             "12",
-            ".",
-            "soe",
-            "bin/{config}/d2rl-soe.dll",
             "d2rloader/plugins",
             "",
             ["-DSOE_WARNINGS_AS_ERRORS=OFF"]);
@@ -29,19 +26,35 @@ internal static class RemoteBuildTests
         check(loaded.Repository == settings.Repository
             && loaded.RevisionKind == settings.RevisionKind
             && loaded.Revision == settings.Revision
-            && loaded.CMakeSource == settings.CMakeSource
-            && loaded.CMakeTarget == settings.CMakeTarget
-            && loaded.DllRelativePath == settings.DllRelativePath
             && loaded.DeploySubdirectory == settings.DeploySubdirectory
             && loaded.CMakeExecutable == settings.CMakeExecutable
             && (loaded.ConfigureArguments ?? []).SequenceEqual(settings.ConfigureArguments ?? []),
-            "GitHub/CMake settings round trip in the project-local .studio cache");
+            "GitHub/CMake settings round trip without repository-owned CMake metadata");
+
+        var settingsJson = File.ReadAllText(CMakeBuildSettings.SettingsFile(project));
+        check(!settingsJson.Contains("CMakeSource", StringComparison.Ordinal)
+            && !settingsJson.Contains("CMakeTarget", StringComparison.Ordinal)
+            && !settingsJson.Contains("DllRelativePath", StringComparison.Ordinal),
+            "Studio settings do not duplicate Charsi repository build metadata");
 
         var repository = GitHubRepository.Parse(settings.Repository);
         check(repository.Owner == "Lukaszpg" && repository.Name == "d2rl-sanctuary-of-exile", "GitHub repository URLs normalize to owner/name");
         check(GitHubRepository.Parse("D2RLoader/PluginSDK").FullName == "D2RLoader/PluginSDK", "owner/name repository syntax is accepted");
         throws(() => GitHubRepository.Parse("https://example.com/owner/repo"), "Non-GitHub repository URLs are rejected");
         throws(() => (settings with { RevisionKind = "pull-request", Revision = "abc" }).Validate(), "Pull request revisions require a numeric PR");
+
+        var source = Path.Combine(projectRoot, ".studio", "manifest-source");
+        Directory.CreateDirectory(source);
+        AtomicWrite(Path.Combine(source, CharsiPackageManifest.FileName), System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            new CharsiPackageManifest(1, "soe", "standalone", "mirror", ".", "soe", "d2rl-soe", "runtime-data/data"), Pretty));
+        var package = CharsiPackageManifest.Load(source);
+        check(package.CMakeSource == "." && package.CMakeTarget == "soe" && package.DllFileName == "d2rl-soe.dll",
+            "Charsi package metadata supplies CMake source, target and DLL name");
+        throws(() => CharsiPackageManifest.Load(Path.Combine(projectRoot, ".studio", "missing-manifest")),
+            "Remote build requires charsi-package.json");
+        AtomicWrite(Path.Combine(source, CharsiPackageManifest.FileName), System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            package with { SchemaVersion = 2 }, Pretty));
+        throws(() => CharsiPackageManifest.Load(source), "Unsupported Charsi package schema is rejected");
 
         var artifactFolder = Path.Combine(projectRoot, ".studio", "fake-build");
         Directory.CreateDirectory(artifactFolder);
