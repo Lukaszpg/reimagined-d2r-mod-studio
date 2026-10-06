@@ -200,9 +200,15 @@ public sealed partial class EditorPane : Grid
         HorizontalScrollBarVisibility = ScrollBarVisibility.Visible, VerticalScrollBarVisibility = ScrollBarVisibility.Visible
     };
 
-    public EditorPane(Document document, Action<Exception> onError, Action<EditorPane> onSelection, Action<EditorPane>? save = null, Func<string, Document?>? findOpenDocument = null)
+    private readonly Func<string, bool>? hasProjectFileEditor;
+    private readonly Action<string>? openProjectFileEditor;
+    private Button? externalEditorButton;
+
+    public EditorPane(Document document, Action<Exception> onError, Action<EditorPane> onSelection, Action<EditorPane>? save = null,
+        Func<string, Document?>? findOpenDocument = null, Func<string, bool>? hasProjectFileEditor = null, Action<string>? openProjectFileEditor = null)
     {
-        Document = document; error = onError; selection = onSelection; this.findOpenDocument = findOpenDocument; activeGrid = TableGrid;
+        Document = document; error = onError; selection = onSelection; this.findOpenDocument = findOpenDocument;
+        this.hasProjectFileEditor = hasProjectFileEditor; this.openProjectFileEditor = openProjectFileEditor; activeGrid = TableGrid;
         Source.SyntaxHighlighting = SourceCodeEditing.Highlighting(document.FilePath);
         Source.Options.ConvertTabsToSpaces = true; Source.Options.IndentationSize = 4;
         ViewSettings.Follow(this, ApplyViewSettings);
@@ -311,7 +317,19 @@ public sealed partial class EditorPane : Grid
         document.Changed += () => saveButton.IsVisible = document.IsDirty;
         toolbar.Children.Insert(0, saveButton);
         InitializeSourceFeatures(toolbar);
+        if (openProjectFileEditor != null)
+        {
+            externalEditorButton = EditorToolbarIcons.Create("Open external editor");
+            externalEditorButton.Click += (_, _) => { try { openProjectFileEditor(Document.FilePath); } catch (Exception ex) { error(ex); } };
+            toolbar.Children.Add(externalEditorButton);
+            RefreshExternalEditorAction();
+        }
         Refresh();
+    }
+
+    public void RefreshExternalEditorAction()
+    {
+        if (externalEditorButton != null) externalEditorButton.IsVisible = hasProjectFileEditor?.Invoke(Document.FilePath) == true;
     }
     private void WireGrid(DataGrid grid)
     {
