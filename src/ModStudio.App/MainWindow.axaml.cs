@@ -47,7 +47,7 @@ public partial class MainWindow : Window
     private string Profile => ProfilePicker.SelectedItem is string s ? s : (ProfilePicker.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "standard";
     public MainWindow()
     {
-        InitializeComponent(); InitializeLog(); InitializeItemPreview(); InitializeSkillPreview(); InitializeMissilePreview(); InitializeStatPreview(); InitializeDropPreview(); InitializeMonsterPreview(); InitializePreviewLinks(); InitializeAffixPreview(); InitializeRecipePreview(); InitializeRowEditor(); InitializeExplorerSearch(); InitializeLaunchTargets(); InitializeFindInFiles(); BottomTabs.Items.Add(new TabItem { Header = new TextBlock { Text = "Terminal", FontSize = 13 }, Content = terminal }); InitializeGit(); InitializeColumnGuide(); InitializeLayout(); InitializeViewPreferences(); InitializeTabDragging(); Problems.ItemsSource = diagnostics;
+        InitializeComponent(); InitializeLog(); InitializeItemPreview(); InitializeSkillPreview(); InitializeMissilePreview(); InitializeStatPreview(); InitializeDropPreview(); InitializeMonsterPreview(); InitializePreviewLinks(); InitializeAffixPreview(); InitializeRecipePreview(); InitializeRowEditor(); InitializeExplorerSearch(); InitializeWorkspaceShortcuts(); InitializeLaunchTargets(); InitializeFindInFiles(); BottomTabs.Items.Add(new TabItem { Header = new TextBlock { Text = "Terminal", FontSize = 13 }, Content = terminal }); InitializeGit(); InitializeColumnGuide(); InitializeLayout(); InitializeViewPreferences(); InitializeTabDragging(); InitializeRemoteDeploymentStatus(); Problems.ItemsSource = diagnostics;
         EditorTextInfo.Attach(CellValue, () => CellValueInfo.Text = string.IsNullOrEmpty(CellValue.Text) ? "" : EditorTextInfo.Describe(CellValue.Text));
         catalogWarningTimer.Tick += async (_, _) => { catalogWarningTimer.Stop(); if (project is { } current) await RefreshCatalogIdWarningsAsync(current); };
         // Reserve space for the overlay scrollbar only when the one-row toolbar overflows.
@@ -60,7 +60,7 @@ public partial class MainWindow : Window
         Icon = new WindowIcon(Avalonia.Platform.AssetLoader.Open(new Uri("avares://ModStudio.App/Assets/ReimaginedModStudio.ico")));
         var welcome = (TabItem)Documents.Items[0]!; Documents.Items.Clear(); tabs.Add(welcome); Documents.ItemsSource = tabs;
         ProfilePicker.Items.Clear(); ProfilePicker.ItemsSource = new[] { "standard", "d2rl" }; ProfilePicker.SelectedIndex = 0;
-        ProfilePicker.SelectionChanged += (_, _) => { _ = RefreshSemanticInspectorAsync(); RefreshItemPreview(); RefreshSkillPreview(); RefreshMissilePreview(); RefreshStatPreview(); RefreshDropPreview(); RefreshMonsterPreview(); RefreshAffixPreview(); RefreshRecipePreview(); RefreshLaunchTargets(); RefreshVisualBuilders(); };
+        ProfilePicker.SelectionChanged += (_, _) => { _ = RefreshSemanticInspectorAsync(); RefreshItemPreview(); RefreshSkillPreview(); RefreshMissilePreview(); RefreshStatPreview(); RefreshDropPreview(); RefreshMonsterPreview(); RefreshAffixPreview(); RefreshRecipePreview(); RefreshLaunchTargets(); RefreshVisualBuilders(); _ = RefreshRemoteDeploymentStatusAsync(true); };
         recoveryTimer.Tick += (_, _) => SaveRecovery(idleOnly: true); recoveryTimer.Start();
         runStateTimer.Tick += (_, _) => RefreshRunControls(); runStateTimer.Start(); InitializeExternalEditor(); InitializeCompanion();
         KeyDown += async (_, e) =>
@@ -235,7 +235,7 @@ public partial class MainWindow : Window
         explorerSearchTimer.Stop(); ExplorerSearch.Text = ""; SetExplorerEntries(entries); ProfilePicker.ItemsSource = project.Profiles.ToArray(); ProfilePicker.SelectedItem = project.Profiles.Contains("standard") ? "standard" : project.Profiles.FirstOrDefault();
         watcher = new(project.Root) { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName, EnableRaisingEvents = true };
         watcher.Changed += OnExternalChange; watcher.Created += OnExternalChange; watcher.Deleted += OnExternalChange; watcher.Renamed += OnExternalChange;
-        RefreshLaunchTargets(); RefreshStatus(); Status.Text = "Project ready. Single-click to preview; double-click to keep a file open.";
+        RefreshLaunchTargets(); RefreshStatus(); Status.Text = "Project ready. Single-click to preview; double-click to keep a file open."; await RefreshRemoteDeploymentStatusAsync(true);
         if (!Program.Arguments.Contains("--smoke"))
         {
             try
@@ -690,9 +690,9 @@ public partial class MainWindow : Window
             {
                 var revisions = tabs.Select(t => t.Content).OfType<EditorPane>().ToDictionary(p => p.Document, p => p.Document.Revision);
                 var cmakeSettings = CMakeBuildSettings.Load(project!);
-                // Build and Deploy use the optional GitHub/CMake pipeline. Play remains the established
-                // Studio build/deploy/launch path; it must not unexpectedly execute a remote CMake revision.
-                var cmakeBuild = cmakeSettings.Configured && !play
+                // Build, Deploy and Play all produce a coherent configured remote artifact. Play already
+                // performs the Studio build/deploy step before launch, so skipping the DLL here could remove it.
+                var cmakeBuild = cmakeSettings.Configured
                     ? await BuildConfiguredDllAsync(cmakeSettings, operation.Token)
                     : null;
                 Func<BuildResult, CancellationToken, Task<BuildResult>>? prepareDeployment = null;
@@ -704,6 +704,7 @@ public partial class MainWindow : Window
                 }
                 var build = await controller.ExecuteAsync(project!, Profile, settings, deploy, play, operation.Token, Log, ReviewDeploymentOwnershipAsync, prepareDeployment);
                 buildDiagnostics.AddRange(build.Diagnostics ?? []); RefreshStatus();
+                if (deploy) await RefreshRemoteDeploymentStatusAsync(true);
                 if (play) { runningBuild = build.Id[..8]; RunState.Text = "Game: " + runningBuild + (revisions.Any(p => p.Key.Revision != p.Value) ? " · newer edits" : " · " + build.Profile); }
                 var warnings = build.Diagnostics ?? [];
                 foreach (var warning in warnings.Take(25)) AppendLog($"  {warning.Severity}: {Path.GetFileName(warning.File)}{(warning.Row >= 0 ? $" row {warning.Row}" : "")}{(warning.Field.Length > 0 ? $" {warning.Field}" : "")}: {warning.Message}");
