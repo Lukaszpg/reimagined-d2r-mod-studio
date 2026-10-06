@@ -14,7 +14,6 @@ public sealed record CMakeBuildSettings(
     string RevisionKind = "branch",
     string Revision = "main",
     string DeploySubdirectory = "d2rloader/plugins",
-    string CMakeExecutable = "",
     string[]? ConfigureArguments = null)
 {
     public bool Configured => !string.IsNullOrWhiteSpace(Repository);
@@ -29,7 +28,6 @@ public sealed record CMakeBuildSettings(
         if (RevisionKind == "pull-request") Require(int.TryParse(Revision.TrimStart('#'), out var number) && number > 0, "Pull request must be a positive PR number.");
         if (!string.IsNullOrWhiteSpace(DeploySubdirectory)) SafeRelative(NormalizeRelative(DeploySubdirectory));
         Require((ConfigureArguments ?? []).All(a => a.IndexOf('\0') < 0), "CMake arguments cannot contain NUL characters.");
-        Require(CMakeExecutable.IndexOf('\0') < 0, "CMake executable cannot contain NUL characters.");
     }
 
     public void Save(ModProject project)
