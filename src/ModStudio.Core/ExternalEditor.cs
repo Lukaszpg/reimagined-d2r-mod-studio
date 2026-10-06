@@ -24,7 +24,69 @@ public record NativeExternalEditorTarget(string File, string Workspace)
     }
 }
 
-public sealed record ExternalEditorSettings(string Executable = "", string[]? FileArguments = null, string[]? WorkspaceArguments = null, bool Configured = false)
+public sealed record ProjectFileEditor(string ProjectFile = "", string Executable = "", string[]? Arguments = null)
+{
+    private static StringComparison PathComparison => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    /// <summary>Resolves a configured project-relative path, or an unambiguous bare file name, without allowing .studio internals.</summary>
+    public string ResolveFile(ModProject project)
+    {
+        Require(!string.IsNullOrWhiteSpace(ProjectFile), "Choose a project file for the external editor.");
+        var configured = ProjectFile.Trim().Replace('\\', '/').TrimStart('/');
+        string file;
+        if (configured.Contains('/'))
+        {
+            file = Inside(project.Root, configured);
+        }
+        else
+        {
+            var matches = Directory.EnumerateFiles(project.Root, "*", SearchOption.AllDirectories)
+                .Where(path => !Contains(project.Cache, path) && Path.GetFileName(path).Equals(configured, PathComparison))
+                .Take(2).ToArray();
+            Require(matches.Length > 0, $"Project file '{configured}' was not found.");
+            Require(matches.Length == 1, $"Project file name '{configured}' is ambiguous. Enter its project-relative path instead.");
+            file = matches[0];
+        }
+        Require(!Contains(project.Cache, file), "Project-file external editors cannot target Studio's .studio cache.");
+        Require(File.Exists(file), "Configured project file is unavailable: " + configured);
+        return Path.GetFullPath(file);
+    }
+
+    public bool Matches(ModProject project, string file)
+    {
+        try { return Path.GetFullPath(file).Equals(ResolveFile(project), PathComparison); }
+        catch (InvalidDataException) { return false; }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+        catch (ArgumentException) { return false; }
+        catch (NotSupportedException) { return false; }
+    }
+
+    public void Validate(ModProject project)
+    {
+        _ = ResolveFile(project);
+        Require(!string.IsNullOrWhiteSpace(Executable) && File.Exists(Executable), "Choose an existing executable for the project file editor.");
+        Require((Arguments ?? []).All(arg => arg.IndexOf('\0') < 0), "External editor arguments cannot contain NUL characters.");
+    }
+
+    public ProcessStartInfo StartInfo(ModProject project)
+    {
+        Validate(project);
+        var file = ResolveFile(project);
+        var root = Path.GetFullPath(project.Root);
+        var start = new ProcessStartInfo(Executable) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(Path.GetFullPath(Executable))! };
+        foreach (var argument in Arguments ?? ["{file}"])
+            start.ArgumentList.Add(argument
+                .Replace("{file}", file, StringComparison.Ordinal)
+                .Replace("{fileDir}", Path.GetDirectoryName(file)!, StringComparison.Ordinal)
+                .Replace("{project}", root, StringComparison.Ordinal)
+                .Replace("{projectDir}", root, StringComparison.Ordinal));
+        Require(!OperatingSystem.IsWindows() || start.ArgumentList.Sum(a => a.Length + 3) + Executable.Length < 30000, "External editor arguments exceed the Windows command-line limit.");
+        return start;
+    }
+}
+
+public sealed record ExternalEditorSettings(string Executable = "", string[]? FileArguments = null, string[]? WorkspaceArguments = null, bool Configured = false, ProjectFileEditor[]? ProjectFileEditors = null)
 {
     /// <summary>Builds the launch. <paramref name="files"/> lists the TXT tables {files} expands to; when omitted every TXT below the workspace is used.
     /// Sessions pass one tracked output per table so sibling banks and foreign copies beside the tables are not opened as duplicates.</summary>
