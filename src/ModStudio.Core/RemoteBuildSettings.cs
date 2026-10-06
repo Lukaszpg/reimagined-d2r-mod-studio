@@ -5,16 +5,14 @@ using static ModStudio.Core.Storage;
 namespace ModStudio.Core;
 
 /// <summary>
-/// Local-only settings for the optional GitHub -> CMake plugin build. The GitHub token is deliberately
-/// not part of this record; it lives in Windows Credential Manager.
+/// Local-only settings for the optional GitHub -> CMake plugin build. Repository build details come
+/// from charsi-package.json in the selected revision. The GitHub token is deliberately not part of
+/// this record; it lives in Windows Credential Manager.
 /// </summary>
 public sealed record CMakeBuildSettings(
     string Repository = "",
     string RevisionKind = "branch",
     string Revision = "main",
-    string CMakeSource = ".",
-    string CMakeTarget = "",
-    string DllRelativePath = "",
     string DeploySubdirectory = "d2rloader/plugins",
     string CMakeExecutable = "",
     string[]? ConfigureArguments = null)
@@ -29,10 +27,6 @@ public sealed record CMakeBuildSettings(
         Require(RevisionKind is "branch" or "pull-request", "Revision type must be Branch or Pull request.");
         Require(!string.IsNullOrWhiteSpace(Revision), "Choose a branch or pull request.");
         if (RevisionKind == "pull-request") Require(int.TryParse(Revision.TrimStart('#'), out var number) && number > 0, "Pull request must be a positive PR number.");
-        Require(!string.IsNullOrWhiteSpace(CMakeTarget), "Choose the CMake target to build.");
-        Require(!string.IsNullOrWhiteSpace(DllRelativePath), "Specify the DLL path relative to the CMake build directory.");
-        if (CMakeSource != ".") SafeRelative(NormalizeRelative(CMakeSource));
-        SafeRelative(NormalizeRelative(DllRelativePath).Replace("{config}", "Release", StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrWhiteSpace(DeploySubdirectory)) SafeRelative(NormalizeRelative(DeploySubdirectory));
         Require((ConfigureArguments ?? []).All(a => a.IndexOf('\0') < 0), "CMake arguments cannot contain NUL characters.");
         Require(CMakeExecutable.IndexOf('\0') < 0, "CMake executable cannot contain NUL characters.");
@@ -53,6 +47,50 @@ public sealed record CMakeBuildSettings(
     }
 
     internal static string NormalizeRelative(string value) => value.Trim().Replace('\\', '/').Trim('/');
+}
+
+/// <summary>The Charsi repository build contract consumed by both Charsi and Mod Studio.</summary>
+public sealed record CharsiPackageManifest(
+    int SchemaVersion = 0,
+    string Plugin = "",
+    string ProjectMode = "",
+    string InstallMode = "",
+    string CMakeSource = ".",
+    string CMakeTarget = "",
+    string OutputName = "",
+    string RuntimeData = "")
+{
+    public const string FileName = "charsi-package.json";
+
+    public static CharsiPackageManifest Load(string sourceRoot)
+    {
+        var path = Inside(sourceRoot, FileName);
+        Require(File.Exists(path), $"Selected revision does not contain {FileName}. Add Charsi package metadata to the repository before building it in Mod Studio.");
+        CharsiPackageManifest manifest;
+        try
+        {
+            manifest = JsonSerializer.Deserialize<CharsiPackageManifest>(File.ReadAllText(path), Pretty)
+                ?? throw new InvalidDataException($"{FileName} is empty.");
+        }
+        catch (JsonException ex) { throw new InvalidDataException($"{FileName} is not valid JSON: {ex.Message}", ex); }
+
+        manifest.Validate();
+        return manifest;
+    }
+
+    public void Validate()
+    {
+        Require(SchemaVersion == 1, $"{FileName} schemaVersion must be 1.");
+        Require(!string.IsNullOrWhiteSpace(CMakeSource), $"{FileName} cmakeSource is required.");
+        Require(!string.IsNullOrWhiteSpace(CMakeTarget), $"{FileName} cmakeTarget is required.");
+        Require(!string.IsNullOrWhiteSpace(OutputName), $"{FileName} outputName is required.");
+        if (CMakeSource != ".") SafeRelative(CMakeBuildSettings.NormalizeRelative(CMakeSource));
+        var output = OutputName.Trim();
+        Require(Path.GetFileName(output) == output && output is not "." and not "..", $"{FileName} outputName must be a file name, not a path.");
+        Require(output.IndexOfAny(Path.GetInvalidFileNameChars()) < 0, $"{FileName} outputName contains invalid file-name characters.");
+    }
+
+    public string DllFileName => OutputName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? OutputName : OutputName + ".dll";
 }
 
 public sealed record GitHubRepository(string Owner, string Name)
