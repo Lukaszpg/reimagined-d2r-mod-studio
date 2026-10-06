@@ -4,7 +4,7 @@ using static ModStudio.Core.Storage;
 namespace ModStudio.Core;
 
 public record BuildFile(string Path, string Sha256, long Size);
-public record BuildResult(string Id, string Profile, string ProjectId, string ModName, string Output, List<BuildFile> Files, string Snapshot, List<Diagnostic>? Diagnostics = null);
+public record BuildResult(string Id, string Profile, string ProjectId, string ModName, string Output, List<BuildFile> Files, string Snapshot, List<Diagnostic>? Diagnostics = null, string? SourceRepository = null, string? SourceRevisionSha = null);
 public sealed class BuildFailure(List<Diagnostic> diagnostics) : Exception(string.Join(Environment.NewLine, diagnostics.Select(d => d.ToString()))) { public List<Diagnostic> Diagnostics { get; } = diagnostics; }
 
 public static class BuildService
