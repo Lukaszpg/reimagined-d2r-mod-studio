@@ -689,7 +689,20 @@ public partial class MainWindow : Window
             try
             {
                 var revisions = tabs.Select(t => t.Content).OfType<EditorPane>().ToDictionary(p => p.Document, p => p.Document.Revision);
-                var build = await controller.ExecuteAsync(project!, Profile, settings, deploy, play, operation.Token, Log, ReviewDeploymentOwnershipAsync);
+                var cmakeSettings = CMakeBuildSettings.Load(project!);
+                // Build and Deploy use the optional GitHub/CMake pipeline. Play remains the established
+                // Studio build/deploy/launch path; it must not unexpectedly execute a remote CMake revision.
+                var cmakeBuild = cmakeSettings.Configured && !play
+                    ? await BuildConfiguredDllAsync(cmakeSettings, operation.Token)
+                    : null;
+                Func<BuildResult, CancellationToken, Task<BuildResult>>? prepareDeployment = null;
+                if (deploy && cmakeBuild != null)
+                {
+                    var artifact = cmakeBuild;
+                    prepareDeployment = (studioBuild, token) => Task.Run(
+                        () => RemoteCMakeBuildService.AttachDll(project!, studioBuild, artifact, cmakeSettings, token, Log), token);
+                }
+                var build = await controller.ExecuteAsync(project!, Profile, settings, deploy, play, operation.Token, Log, ReviewDeploymentOwnershipAsync, prepareDeployment);
                 buildDiagnostics.AddRange(build.Diagnostics ?? []); RefreshStatus();
                 if (play) { runningBuild = build.Id[..8]; RunState.Text = "Game: " + runningBuild + (revisions.Any(p => p.Key.Revision != p.Value) ? " · newer edits" : " · " + build.Profile); }
                 var warnings = build.Diagnostics ?? [];
