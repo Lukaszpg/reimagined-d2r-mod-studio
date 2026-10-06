@@ -74,11 +74,21 @@ internal static class RemoteBuildTests
         var target = Inside(output, relativeDll);
         check(attached.Files.Single().Path == relativeDll
             && attached.Files.Single().Sha256 == artifact.Sha256
+            && attached.SourceRepository == artifact.Revision.Repository
+            && attached.SourceRevisionSha == artifact.Revision.Sha
             && File.ReadAllBytes(target).SequenceEqual([1, 2, 3, 4, 5]),
-            "Remote DLL is attached to the ordinary Studio build so DeploymentService owns it transactionally");
+            "Remote DLL and exact source revision are attached to the ordinary Studio build transaction");
         var savedBuild = System.Text.Json.JsonSerializer.Deserialize<BuildResult>(File.ReadAllText(Inside(buildFolder, "build.json")), Pretty)!;
-        check(savedBuild.Files.Single().Path == relativeDll && savedBuild.Files.Single().Sha256 == artifact.Sha256,
-            "The current build manifest records the attached DLL before deployment");
+        check(savedBuild.Files.Single().Path == relativeDll
+            && savedBuild.Files.Single().Sha256 == artifact.Sha256
+            && savedBuild.SourceRevisionSha == artifact.Revision.Sha,
+            "The current build manifest records the attached DLL and source revision before deployment");
+
+        var deployment = Path.Combine(root, "remote-build-deployment", project.Name);
+        DeploymentService.Deploy(project, attached, deployment);
+        var deployed = DeploymentService.ReadManifest(deployment);
+        check(deployed?.SourceRepository == artifact.Revision.Repository && deployed.SourceRevisionSha == artifact.Revision.Sha,
+            "Deployment owner manifest records the exact GitHub revision used to build the deployed DLL");
 
         File.WriteAllBytes(dll, [9]);
         throws(() => RemoteCMakeBuildService.AttachDll(project, build, artifact, settings), "A DLL changed after the CMake build is not attached for deployment");
