@@ -511,7 +511,8 @@ public partial class MainWindow : Window
                 {
                     var rawDocument = await Task.Run(() => new Document(file, forceRaw: true));
                     if (!tabs.Contains(binary)) return;
-                    var rawPane = new EditorPane(rawDocument, ShowError, UpdateInspector, save: SavePane);
+                    var rawPane = new EditorPane(rawDocument, ShowError, UpdateInspector, save: SavePane,
+                        hasProjectFileEditor: HasProjectFileEditor, openProjectFileEditor: path => _ = OpenProjectFileEditorAsync(path));
                     binary.Content = rawPane;
                     rawDocument.Changed += () => { if (rawDocument.IsDirty) KeepTab(binary); UpdateTabHeader(binary); RefreshStatus(); };
                     UpdateTabHeader(binary); UpdateInspector(rawPane);
@@ -526,7 +527,8 @@ public partial class MainWindow : Window
         Status.Text = "Loading " + System.IO.Path.GetFileName(file) + "…";
         var document = await Task.Run(() => new Document(file));
         if (openingProject != project || loadingTab != null && !tabs.Contains(loadingTab)) return null;
-        var pane = new EditorPane(document, ShowError, UpdateInspector, SavePane, FindOpenDocument);
+        var pane = new EditorPane(document, ShowError, UpdateInspector, SavePane, FindOpenDocument,
+            HasProjectFileEditor, path => _ = OpenProjectFileEditorAsync(path));
         AttachVisualBuilder(pane);
         RememberEditorView(pane, file);
         pane.ReferenceRequested += async (sender, row, column, anchor) => await NavigateCellReferenceAsync(sender, row, column, anchor);
