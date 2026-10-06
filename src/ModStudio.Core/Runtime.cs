@@ -245,6 +245,7 @@ public sealed class RunController : IDisposable
             var start = play ? CreateStartInfo(project, settings) : null;
             // Build for the folder the mod will be deployed to, so a second deployment folder such as mods/MyMod-test gets its own .mpq name.
             var build = await Task.Run(() => BuildService.Build(project, profile, token, progress, settings.ModName(project)), token);
+            if (deploy && prepareDeployment != null) build = await prepareDeployment(build, token);
             if (deploy)
             {
                 try { await Task.Run(() => DeploymentService.Deploy(project, build, settings.DeploymentDirectory, token, progress, settings.OverwriteDestination), token); }
