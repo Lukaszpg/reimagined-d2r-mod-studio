@@ -28,6 +28,13 @@
     <Style Selector="Window"><Setter Property="Background" Value="#171819" /><Setter Property="Foreground" Value="#F0E9DF" /><Setter Property="FontSize" Value="13" /></Style>
     <Style Selector="Button"><Setter Property="Padding" Value="12,7" /><Setter Property="Margin" Value="2" /></Style>
     <Style Selector="Button.accent"><Setter Property="Background" Value="#8C3529" /><Setter Property="Foreground" Value="#FFF4E1" /></Style>
+    <!-- Play deployment freshness must override Fluent's themed button presenter, not only the outer Button.Background. -->
+    <Style Selector="Button.playCurrent /template/ ContentPresenter"><Setter Property="Background" Value="#2E7D32" /><Setter Property="BorderBrush" Value="#4CAF50" /><Setter Property="Foreground" Value="#FFFFFF" /></Style>
+    <Style Selector="Button.playCurrent:pointerover /template/ ContentPresenter"><Setter Property="Background" Value="#388E3C" /></Style>
+    <Style Selector="Button.playCurrent:pressed /template/ ContentPresenter"><Setter Property="Background" Value="#256628" /></Style>
+    <Style Selector="Button.playStale /template/ ContentPresenter"><Setter Property="Background" Value="#9D3333" /><Setter Property="BorderBrush" Value="#D65A5A" /><Setter Property="Foreground" Value="#FFFFFF" /></Style>
+    <Style Selector="Button.playStale:pointerover /template/ ContentPresenter"><Setter Property="Background" Value="#B23C3C" /></Style>
+    <Style Selector="Button.playStale:pressed /template/ ContentPresenter"><Setter Property="Background" Value="#7D2929" /></Style>
     <Style Selector="Button.tabClose"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Foreground" Value="#B9AD97" /></Style>
     <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="#B9AD97" /></Style>
     <Style Selector="Button.explorerTool"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Padding" Value="4" /><Setter Property="Margin" Value="1,0" /><Setter Property="Width" Value="26" /><Setter Property="Height" Value="26" /><Setter Property="MinWidth" Value="26" /><Setter Property="MinHeight" Value="26" /></Style>

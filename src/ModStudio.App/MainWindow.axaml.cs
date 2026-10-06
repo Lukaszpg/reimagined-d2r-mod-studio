@@ -43,11 +43,15 @@ public partial class MainWindow : Window
     private string? runningBuild;
     private int workspaceRevision;
     private readonly List<Diagnostic> buildDiagnostics = [];
+    private readonly object buildLogSync = new();
+    private List<string>? activeBuildLog;
+    private string lastBuildLog = "";
+    private string activeBuildLogKind = "";
     private EditorPane? Active => (Documents?.SelectedItem as TabItem)?.Content as EditorPane;
     private string Profile => ProfilePicker.SelectedItem is string s ? s : (ProfilePicker.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "standard";
     public MainWindow()
     {
-        InitializeComponent(); InitializeLog(); InitializeItemPreview(); InitializeSkillPreview(); InitializeMissilePreview(); InitializeStatPreview(); InitializeDropPreview(); InitializeMonsterPreview(); InitializePreviewLinks(); InitializeAffixPreview(); InitializeRecipePreview(); InitializeRowEditor(); InitializeExplorerSearch(); InitializeLaunchTargets(); InitializeFindInFiles(); BottomTabs.Items.Add(new TabItem { Header = new TextBlock { Text = "Terminal", FontSize = 13 }, Content = terminal }); InitializeGit(); InitializeColumnGuide(); InitializeLayout(); InitializeViewPreferences(); InitializeTabDragging(); Problems.ItemsSource = diagnostics;
+        InitializeComponent(); InitializeLog(); InitializeItemPreview(); InitializeSkillPreview(); InitializeMissilePreview(); InitializeStatPreview(); InitializeDropPreview(); InitializeMonsterPreview(); InitializePreviewLinks(); InitializeAffixPreview(); InitializeRecipePreview(); InitializeRowEditor(); InitializeExplorerSearch(); InitializeWorkspaceShortcuts(); InitializeLaunchTargets(); InitializeFindInFiles(); BottomTabs.Items.Add(new TabItem { Header = new TextBlock { Text = "Terminal", FontSize = 13 }, Content = terminal }); InitializeGit(); InitializeColumnGuide(); InitializeLayout(); InitializeViewPreferences(); InitializeTabDragging(); InitializeRemoteDeploymentStatus(); Problems.ItemsSource = diagnostics;
         EditorTextInfo.Attach(CellValue, () => CellValueInfo.Text = string.IsNullOrEmpty(CellValue.Text) ? "" : EditorTextInfo.Describe(CellValue.Text));
         catalogWarningTimer.Tick += async (_, _) => { catalogWarningTimer.Stop(); if (project is { } current) await RefreshCatalogIdWarningsAsync(current); };
         // Reserve space for the overlay scrollbar only when the one-row toolbar overflows.
@@ -60,7 +64,7 @@ public partial class MainWindow : Window
         Icon = new WindowIcon(Avalonia.Platform.AssetLoader.Open(new Uri("avares://ModStudio.App/Assets/ReimaginedModStudio.ico")));
         var welcome = (TabItem)Documents.Items[0]!; Documents.Items.Clear(); tabs.Add(welcome); Documents.ItemsSource = tabs;
         ProfilePicker.Items.Clear(); ProfilePicker.ItemsSource = new[] { "standard", "d2rl" }; ProfilePicker.SelectedIndex = 0;
-        ProfilePicker.SelectionChanged += (_, _) => { _ = RefreshSemanticInspectorAsync(); RefreshItemPreview(); RefreshSkillPreview(); RefreshMissilePreview(); RefreshStatPreview(); RefreshDropPreview(); RefreshMonsterPreview(); RefreshAffixPreview(); RefreshRecipePreview(); RefreshLaunchTargets(); RefreshVisualBuilders(); };
+        ProfilePicker.SelectionChanged += (_, _) => { _ = RefreshSemanticInspectorAsync(); RefreshItemPreview(); RefreshSkillPreview(); RefreshMissilePreview(); RefreshStatPreview(); RefreshDropPreview(); RefreshMonsterPreview(); RefreshAffixPreview(); RefreshRecipePreview(); RefreshLaunchTargets(); RefreshVisualBuilders(); _ = RefreshRemoteDeploymentStatusAsync(true); };
         recoveryTimer.Tick += (_, _) => SaveRecovery(idleOnly: true); recoveryTimer.Start();
         runStateTimer.Tick += (_, _) => RefreshRunControls(); runStateTimer.Start(); InitializeExternalEditor(); InitializeCompanion();
         KeyDown += async (_, e) =>
@@ -109,17 +113,76 @@ public partial class MainWindow : Window
         if (runningBuild != null && !controller.Running && operation == null) RunState.Text = "Last game: " + runningBuild + " · exited";
     }
     private bool logging;
-    private void Log(string text) => Dispatcher.UIThread.Post(() => { AppendLog(text); logging = true; try { Status.Text = text; } finally { logging = false; } });
+    private static string FormatLogLine(string text) => DateTime.Now.ToString("HH:mm:ss") + "  " + text;
+    private void CaptureBuildLogLine(string line)
+    {
+        lock (buildLogSync) activeBuildLog?.Add(line);
+    }
+    private void Log(string text)
+    {
+        var line = FormatLogLine(text);
+        CaptureBuildLogLine(line);
+        Dispatcher.UIThread.Post(() =>
+        {
+            AppendFormattedLogLine(line);
+            logging = true; try { Status.Text = text; } finally { logging = false; }
+        });
+    }
     private void AppendLog(string text)
     {
-        Output.Text = (Output.Text ?? "") + DateTime.Now.ToString("HH:mm:ss") + "  " + text + Environment.NewLine;
+        var line = FormatLogLine(text);
+        CaptureBuildLogLine(line);
+        AppendFormattedLogLine(line);
+    }
+    private void AppendFormattedLogLine(string line)
+    {
+        Output.Text = (Output.Text ?? "") + line + Environment.NewLine;
         if (Output.Text.Length > 60000) Output.Text = Output.Text[^50000..];
+        ScrollLogToBottom();
+    }
+    private void BeginBuildLog(string kind)
+    {
+        lock (buildLogSync)
+        {
+            activeBuildLogKind = kind;
+            activeBuildLog = [FormatLogLine($"=== {kind} started ===")];
+        }
+    }
+    private void EndBuildLog()
+    {
+        lock (buildLogSync)
+        {
+            if (activeBuildLog == null) return;
+            activeBuildLog.Add(FormatLogLine($"=== {activeBuildLogKind} finished ==="));
+            lastBuildLog = string.Join(Environment.NewLine, activeBuildLog) + Environment.NewLine;
+            activeBuildLog = null;
+            activeBuildLogKind = "";
+        }
+        CopyLastBuildLogButton.IsEnabled = lastBuildLog.Length > 0;
+    }
+    private async void CopyLastBuildLogClicked(object? sender, RoutedEventArgs e)
+    {
+        string text;
+        lock (buildLogSync) text = lastBuildLog;
+        if (text.Length == 0 || Clipboard == null) return;
+        await Clipboard.SetTextAsync(text);
+        Status.Text = "Copied the most recent build log.";
+    }
+    private void ScrollLogToBottom()
+    {
+        Output.CaretIndex = Output.Text?.Length ?? 0;
+        Dispatcher.UIThread.Post(() =>
+        {
+            var scroll = Output.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+            if (scroll != null) scroll.Offset = new Vector(scroll.Offset.X, Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height));
+        }, DispatcherPriority.Background);
     }
     /// <summary>Every status-bar message is also kept in the Log tab, so a message that was only glimpsed can be read back later; clicking the status bar opens that tab.</summary>
     private void InitializeLog()
     {
         Status.PropertyChanged += (_, e) => { if (e.Property == TextBlock.TextProperty && !logging && Status.Text is { Length: > 0 } text) AppendLog(text); };
         Status.PointerPressed += (_, _) => ShowBottomTab(1);
+        BottomTabs.SelectionChanged += (_, _) => { if (BottomTabs.SelectedIndex == 1) ScrollLogToBottom(); };
     }
     private void ShowError(Exception e) { if (Program.Arguments.Contains("--smoke")) Console.Error.WriteLine(e); logging = true; try { Status.Text = e.Message; } finally { logging = false; } AppendLog("Error: " + e.Message); ShowBottomTab(1); }
     private async Task<string?> PickFolderAsync(string title)
@@ -246,6 +309,7 @@ public partial class MainWindow : Window
                 await ApplyDetectedGameDefaultsAsync();
                 StartSearchIndexing(nextProject);
                 if (!preferences.HasIntroduced(project.Root)) await ShowSettingsAsync();
+                await RefreshRemoteDeploymentStatusAsync(true);
             }
             catch (Exception ex) { ShowError(ex); }
         }
@@ -447,7 +511,8 @@ public partial class MainWindow : Window
                 {
                     var rawDocument = await Task.Run(() => new Document(file, forceRaw: true));
                     if (!tabs.Contains(binary)) return;
-                    var rawPane = new EditorPane(rawDocument, ShowError, UpdateInspector, save: SavePane);
+                    var rawPane = new EditorPane(rawDocument, ShowError, UpdateInspector, save: SavePane,
+                        hasProjectFileEditor: HasProjectFileEditor, openProjectFileEditor: path => _ = OpenProjectFileEditorAsync(path));
                     binary.Content = rawPane;
                     rawDocument.Changed += () => { if (rawDocument.IsDirty) KeepTab(binary); UpdateTabHeader(binary); RefreshStatus(); };
                     UpdateTabHeader(binary); UpdateInspector(rawPane);
@@ -462,7 +527,8 @@ public partial class MainWindow : Window
         Status.Text = "Loading " + System.IO.Path.GetFileName(file) + "…";
         var document = await Task.Run(() => new Document(file));
         if (openingProject != project || loadingTab != null && !tabs.Contains(loadingTab)) return null;
-        var pane = new EditorPane(document, ShowError, UpdateInspector, SavePane, FindOpenDocument);
+        var pane = new EditorPane(document, ShowError, UpdateInspector, SavePane, FindOpenDocument,
+            HasProjectFileEditor, path => _ = OpenProjectFileEditorAsync(path));
         AttachVisualBuilder(pane);
         RememberEditorView(pane, file);
         pane.ReferenceRequested += async (sender, row, column, anchor) => await NavigateCellReferenceAsync(sender, row, column, anchor);
@@ -666,6 +732,7 @@ public partial class MainWindow : Window
                 preferences.MarkIntroduced(project.Root, StudioPreferences.DefaultFile);
             }
             await dialog.ShowDialog(this);
+            await RefreshRemoteDeploymentStatusAsync(true);
         }
         catch (Exception ex) { ShowError(ex); }
     }
@@ -685,12 +752,27 @@ public partial class MainWindow : Window
                 if (!await SaveAllAsync()) return;
             }
             if (!await SyncExternalAsync(true)) return;
+            BeginBuildLog(play ? "Play" : deploy ? "Deploy" : "Build");
             buildDiagnostics.Clear(); RefreshStatus(); ShowBottomTab(1); operation = new();
             try
             {
                 var revisions = tabs.Select(t => t.Content).OfType<EditorPane>().ToDictionary(p => p.Document, p => p.Document.Revision);
-                var build = await controller.ExecuteAsync(project!, Profile, settings, deploy, play, operation.Token, Log, ReviewDeploymentOwnershipAsync);
+                var cmakeSettings = CMakeBuildSettings.Load(project!);
+                // Build, Deploy and Play all produce a coherent configured remote artifact. Play already
+                // performs the Studio build/deploy step before launch, so skipping the DLL here could remove it.
+                var cmakeBuild = cmakeSettings.Configured
+                    ? await BuildConfiguredDllAsync(cmakeSettings, operation.Token)
+                    : null;
+                Func<BuildResult, CancellationToken, Task<BuildResult>>? prepareDeployment = null;
+                if (deploy && cmakeBuild != null)
+                {
+                    var artifact = cmakeBuild;
+                    prepareDeployment = (studioBuild, token) => Task.Run(
+                        () => RemoteCMakeBuildService.AttachDll(project!, studioBuild, artifact, cmakeSettings, token, Log), token);
+                }
+                var build = await controller.ExecuteAsync(project!, Profile, settings, deploy, play, operation.Token, Log, ReviewDeploymentOwnershipAsync, prepareDeployment);
                 buildDiagnostics.AddRange(build.Diagnostics ?? []); RefreshStatus();
+                if (deploy) await RefreshRemoteDeploymentStatusAsync(true);
                 if (play) { runningBuild = build.Id[..8]; RunState.Text = "Game: " + runningBuild + (revisions.Any(p => p.Key.Revision != p.Value) ? " · newer edits" : " · " + build.Profile); }
                 var warnings = build.Diagnostics ?? [];
                 foreach (var warning in warnings.Take(25)) AppendLog($"  {warning.Severity}: {Path.GetFileName(warning.File)}{(warning.Row >= 0 ? $" row {warning.Row}" : "")}{(warning.Field.Length > 0 ? $" {warning.Field}" : "")}: {warning.Message}");
@@ -702,6 +784,7 @@ public partial class MainWindow : Window
         catch (BuildFailure e) { buildDiagnostics.AddRange(e.Diagnostics); RefreshStatus(); ShowBottomTab(0); Status.Text = "Build blocked. Select a problem to locate its source."; }
         catch (OperationCanceledException) { Status.Text = "Build/deployment canceled."; }
         catch (Exception e) { ShowError(e); }
+        finally { EndBuildLog(); }
     }
     private async Task SmokeAsync()
     {

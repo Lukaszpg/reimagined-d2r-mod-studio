@@ -6,7 +6,7 @@
     <StackPanel x:Name="ToolbarActionButtons" Orientation="Horizontal">
     <TextBlock Text="REIMAGINED&#10;D2R MOD STUDIO" FontSize="11" FontWeight="SemiBold" Foreground="#D8BC86" Margin="8,0,18,0" VerticalAlignment="Center" />
     <Button Content="Open project" Click="OpenClicked" ToolTip.Tip="Open a Studio project (JSON source)" /><Button Content="Import mod…" Click="MigrateClicked" ToolTip.Tip="Turn an existing mod, unpacked .mpq or data folder into an editable Studio project" />
-    <Button Content="Save all" Click="SaveAllClicked" /><Button x:Name="FindInFilesButton" Content="Find in files…" ToolTip.Tip="Search every table cell, string and file in the project; preview and edit matches without opening them (Ctrl+Shift+F)" /><Button Content="Run settings" Click="SettingsClicked" />
+    <Button Content="Save all" Click="SaveAllClicked" /><Button x:Name="FindInFilesButton" Content="Find in files…" ToolTip.Tip="Search every table cell, string and file in the project; preview and edit matches without opening them (Ctrl+Shift+F)" /><Button Content="Run settings" Click="SettingsClicked" /><Button Content="Build settings" Click="BuildSettingsClicked" ToolTip.Tip="Configure optional GitHub branch/PR CMake builds and secure GitHub authentication" />
     <Button Content="External editor" Click="ExternalEditorClicked" ToolTip.Tip="Open deployed TXT files or a workspace in your own editor; synchronize and resolve conflicts" />
     <Button Content="Level Editor" Click="CompanionClicked" ToolTip.Tip="Open the selected level or scene; configure companion applications" />
     <Button x:Name="ViewSettingsButton" Content="View" ToolTip.Tip="View settings: table and source editor fonts and sizes, column letters, hover cards (Ctrl + wheel zooms the view under the pointer)" />
@@ -14,9 +14,10 @@
     </StackPanel>
     </ScrollViewer>
     <StackPanel Grid.Column="1" VerticalAlignment="Top" Orientation="Horizontal" Margin="8,0,0,0">
-     <ComboBox x:Name="ProfilePicker" Width="130" VerticalAlignment="Center" SelectedIndex="0"><ComboBoxItem Content="standard" /><ComboBoxItem Content="d2rl" /></ComboBox>
-     <ComboBox x:Name="LaunchTargetPicker" Width="135" PlaceholderText="Game target" IsEnabled="False" VerticalAlignment="Center" ToolTip.Tip="Launch using D2R.exe (vanilla) or D2RLoader.exe. Configure the game folder in Run settings." />
-     <Button Content="Build" Click="BuildClicked" /><Button Content="Deploy" Click="DeployClicked" /><Button Content="▶ Play" Classes="accent" Click="PlayClicked" /><Button x:Name="StopButton" Content="■ Stop / Cancel" Click="StopClicked" IsVisible="False" />
+     <ComboBox x:Name="ProfilePicker" Width="130" Margin="0,0,3,0" VerticalAlignment="Center" SelectedIndex="0"><ComboBoxItem Content="standard" /><ComboBoxItem Content="d2rl" /></ComboBox>
+     <ComboBox x:Name="LaunchTargetPicker" Width="135" Margin="0,0,3,0" PlaceholderText="Game target" IsEnabled="False" VerticalAlignment="Center" ToolTip.Tip="Launch using D2R.exe (vanilla) or D2RLoader.exe. Configure the game folder in Run settings." />
+     <ComboBox x:Name="BuildTypePicker" Width="94" Margin="0,0,3,0" VerticalAlignment="Center" SelectedIndex="0" ToolTip.Tip="CMake build type used by configured GitHub builds"><ComboBoxItem Content="Release" /><ComboBoxItem Content="Debug" /></ComboBox>
+     <Button Content="Build" Click="BuildClicked" /><Button Content="Deploy" Click="DeployClicked" /><Button x:Name="PlayButton" Content="▶ Play" Click="PlayClicked" /><Button x:Name="StopButton" Content="■ Stop / Cancel" Click="StopClicked" IsVisible="False" />
     </StackPanel>
    </Grid>
   </Border>
@@ -109,7 +110,7 @@
   <Grid x:Name="BottomPanel" Grid.Row="3">
   <TabControl x:Name="BottomTabs">
    <TabItem><TabItem.Header><TextBlock Text="Problems" FontSize="13" /></TabItem.Header><DockPanel><WrapPanel DockPanel.Dock="Top"><Button Content="Check source references / rules" Click="CheckSemanticsClicked" /><Button Content="Edit validation rules…" Click="EditRulesClicked" /><TextBlock x:Name="SemanticStatus" Margin="8" Text="Shared-source checks; game coverage is partial" /></WrapPanel><ListBox x:Name="Problems" DoubleTapped="ProblemDoubleTapped" /></DockPanel></TabItem>
-   <TabItem ToolTip.Tip="Every status-bar message, error, build and game line in order"><TabItem.Header><TextBlock Text="Log" FontSize="13" /></TabItem.Header><TextBox x:Name="Output" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" /></TabItem>
+   <TabItem ToolTip.Tip="Every status-bar message, error, build and game line in order"><TabItem.Header><TextBlock Text="Log" FontSize="13" /></TabItem.Header><DockPanel><Button x:Name="CopyLastBuildLogButton" DockPanel.Dock="Top" Content="Copy last build log" Click="CopyLastBuildLogClicked" HorizontalAlignment="Right" Margin="2,5,2,5" IsEnabled="False" ToolTip.Tip="Copy only the most recent Build, Deploy or Play operation log" /><TextBox x:Name="Output" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" /></DockPanel></TabItem>
    <TabItem><TabItem.Header><TextBlock Text="Changes" FontSize="13" /></TabItem.Header><DockPanel><Button DockPanel.Dock="Top" Content="Compare active table with disk…" Click="CompareClicked" HorizontalAlignment="Left" /><ListBox x:Name="Changes" /></DockPanel></TabItem>
   </TabControl>
   <Button x:Name="HideBottomButton" Classes="explorerTool" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,3,4,0" ToolTip.Tip="Hide the tool panel" />
