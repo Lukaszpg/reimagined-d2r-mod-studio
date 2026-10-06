@@ -43,6 +43,10 @@ public partial class MainWindow : Window
     private string? runningBuild;
     private int workspaceRevision;
     private readonly List<Diagnostic> buildDiagnostics = [];
+    private readonly object buildLogSync = new();
+    private List<string>? activeBuildLog;
+    private string lastBuildLog = "";
+    private string activeBuildLogKind = "";
     private EditorPane? Active => (Documents?.SelectedItem as TabItem)?.Content as EditorPane;
     private string Profile => ProfilePicker.SelectedItem is string s ? s : (ProfilePicker.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "standard";
     public MainWindow()
@@ -109,12 +113,60 @@ public partial class MainWindow : Window
         if (runningBuild != null && !controller.Running && operation == null) RunState.Text = "Last game: " + runningBuild + " · exited";
     }
     private bool logging;
-    private void Log(string text) => Dispatcher.UIThread.Post(() => { AppendLog(text); logging = true; try { Status.Text = text; } finally { logging = false; } });
+    private static string FormatLogLine(string text) => DateTime.Now.ToString("HH:mm:ss") + "  " + text;
+    private void CaptureBuildLogLine(string line)
+    {
+        lock (buildLogSync) activeBuildLog?.Add(line);
+    }
+    private void Log(string text)
+    {
+        var line = FormatLogLine(text);
+        CaptureBuildLogLine(line);
+        Dispatcher.UIThread.Post(() =>
+        {
+            AppendFormattedLogLine(line);
+            logging = true; try { Status.Text = text; } finally { logging = false; }
+        });
+    }
     private void AppendLog(string text)
     {
-        Output.Text = (Output.Text ?? "") + DateTime.Now.ToString("HH:mm:ss") + "  " + text + Environment.NewLine;
+        var line = FormatLogLine(text);
+        CaptureBuildLogLine(line);
+        AppendFormattedLogLine(line);
+    }
+    private void AppendFormattedLogLine(string line)
+    {
+        Output.Text = (Output.Text ?? "") + line + Environment.NewLine;
         if (Output.Text.Length > 60000) Output.Text = Output.Text[^50000..];
         ScrollLogToBottom();
+    }
+    private void BeginBuildLog(string kind)
+    {
+        lock (buildLogSync)
+        {
+            activeBuildLogKind = kind;
+            activeBuildLog = [FormatLogLine($"=== {kind} started ===")];
+        }
+    }
+    private void EndBuildLog()
+    {
+        lock (buildLogSync)
+        {
+            if (activeBuildLog == null) return;
+            activeBuildLog.Add(FormatLogLine($"=== {activeBuildLogKind} finished ==="));
+            lastBuildLog = string.Join(Environment.NewLine, activeBuildLog) + Environment.NewLine;
+            activeBuildLog = null;
+            activeBuildLogKind = "";
+        }
+        CopyLastBuildLogButton.IsEnabled = lastBuildLog.Length > 0;
+    }
+    private async void CopyLastBuildLogClicked(object? sender, RoutedEventArgs e)
+    {
+        string text;
+        lock (buildLogSync) text = lastBuildLog;
+        if (text.Length == 0 || Clipboard == null) return;
+        await Clipboard.SetTextAsync(text);
+        Status.Text = "Copied the most recent build log.";
     }
     private void ScrollLogToBottom()
     {
@@ -698,6 +750,7 @@ public partial class MainWindow : Window
                 if (!await SaveAllAsync()) return;
             }
             if (!await SyncExternalAsync(true)) return;
+            BeginBuildLog(play ? "Play" : deploy ? "Deploy" : "Build");
             buildDiagnostics.Clear(); RefreshStatus(); ShowBottomTab(1); operation = new();
             try
             {
@@ -729,6 +782,7 @@ public partial class MainWindow : Window
         catch (BuildFailure e) { buildDiagnostics.AddRange(e.Diagnostics); RefreshStatus(); ShowBottomTab(0); Status.Text = "Build blocked. Select a problem to locate its source."; }
         catch (OperationCanceledException) { Status.Text = "Build/deployment canceled."; }
         catch (Exception e) { ShowError(e); }
+        finally { EndBuildLog(); }
     }
     private async Task SmokeAsync()
     {
