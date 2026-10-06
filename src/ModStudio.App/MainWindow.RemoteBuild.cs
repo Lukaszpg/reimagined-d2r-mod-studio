@@ -1,7 +1,5 @@
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
-using Avalonia.Media;
 using ModStudio.Core;
 using static ModStudio.Core.Storage;
 
@@ -23,17 +21,8 @@ public partial class MainWindow
 
     private void SetPlayRevisionState(bool? current, string tooltip)
     {
-        if (current == null)
-        {
-            PlayButton.ClearValue(TemplatedControl.BackgroundProperty);
-            PlayButton.ClearValue(TemplatedControl.BorderBrushProperty);
-        }
-        else
-        {
-            var color = Color.Parse(current.Value ? "#2E7D32" : "#9D3333");
-            PlayButton.Background = new SolidColorBrush(color);
-            PlayButton.BorderBrush = new SolidColorBrush(color);
-        }
+        PlayButton.Classes.Set("playCurrent", current == true);
+        PlayButton.Classes.Set("playStale", current == false);
         ToolTip.SetTip(PlayButton, tooltip);
     }
 
