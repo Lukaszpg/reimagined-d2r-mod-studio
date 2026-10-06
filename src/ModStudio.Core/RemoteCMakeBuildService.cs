@@ -32,8 +32,10 @@ public static class RemoteCMakeBuildService
         }
         token.ThrowIfCancellationRequested();
 
-        var cmakeSource = settings.CMakeSource == "." ? source : Inside(source, CMakeBuildSettings.NormalizeRelative(settings.CMakeSource));
-        Require(File.Exists(Path.Combine(cmakeSource, "CMakeLists.txt")), $"No CMakeLists.txt found under {settings.CMakeSource}.");
+        var package = CharsiPackageManifest.Load(source);
+        progress?.Invoke($"Charsi package: {package.Plugin} · target {package.CMakeTarget} · output {package.DllFileName}.");
+        var cmakeSource = package.CMakeSource == "." ? source : Inside(source, CMakeBuildSettings.NormalizeRelative(package.CMakeSource));
+        Require(File.Exists(Path.Combine(cmakeSource, "CMakeLists.txt")), $"No CMakeLists.txt found under charsi-package.json cmakeSource '{package.CMakeSource}'.");
         var build = Inside(cache, $"build/{revision.Sha}/{buildType.ToLowerInvariant()}");
         // A commit SHA has immutable sources, so its CMake tree is safe to reuse. This preserves
         // FetchContent/dependency and compiler caches across repeated Build/Deploy clicks.
@@ -46,11 +48,11 @@ public static class RemoteCMakeBuildService
         progress?.Invoke($"Configuring CMake · {buildType} · {revision.ShortSha}…");
         await RunProcessAsync(cmake, configure, source, token, progress);
 
-        var buildArguments = new[] { "--build", build, "--config", buildType, "--target", settings.CMakeTarget, "--parallel" };
-        progress?.Invoke($"Building CMake target {settings.CMakeTarget} · {buildType}…");
+        var buildArguments = new[] { "--build", build, "--config", buildType, "--target", package.CMakeTarget, "--parallel" };
+        progress?.Invoke($"Building CMake target {package.CMakeTarget} · {buildType}…");
         await RunProcessAsync(cmake, buildArguments, source, token, progress);
 
-        var dll = FindArtifact(build, settings.DllRelativePath, buildType);
+        var dll = FindArtifact(build, package.DllFileName, buildType);
         var hash = Hash(File.ReadAllBytes(dll));
         progress?.Invoke($"CMake build complete: {Path.GetFileName(dll)} · {hash[..12]}.");
         return new(revision, buildType, dll, hash);
@@ -126,23 +128,17 @@ public static class RemoteCMakeBuildService
         finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }
     }
 
-    private static string FindArtifact(string buildRoot, string configuredPath, string buildType)
+    private static string FindArtifact(string buildRoot, string dllFileName, string buildType)
     {
-        var relative = CMakeBuildSettings.NormalizeRelative(configuredPath).Replace("{config}", buildType, StringComparison.OrdinalIgnoreCase);
-        SafeRelative(relative);
-        var exact = Inside(buildRoot, relative);
-        if (File.Exists(exact)) return exact;
-
-        var name = Path.GetFileName(relative);
-        var matches = Directory.EnumerateFiles(buildRoot, name, SearchOption.AllDirectories).ToArray();
+        var matches = Directory.EnumerateFiles(buildRoot, dllFileName, SearchOption.AllDirectories).ToArray();
         if (matches.Length == 1) return matches[0];
         if (matches.Length > 1)
         {
             var configMatches = matches.Where(path => Relative(buildRoot, path).Split('/').Contains(buildType, StringComparer.OrdinalIgnoreCase)).ToArray();
             if (configMatches.Length == 1) return configMatches[0];
-            throw new InvalidDataException($"Built DLL is ambiguous. Configure its relative path. Matches: {string.Join(", ", matches.Take(5).Select(p => Relative(buildRoot, p)))}");
+            throw new InvalidDataException($"CMake produced more than one {dllFileName}. Matches: {string.Join(", ", matches.Take(5).Select(p => Relative(buildRoot, p)))}");
         }
-        throw new FileNotFoundException($"CMake target completed but {configuredPath} was not found under {buildRoot}.");
+        throw new FileNotFoundException($"CMake target completed but charsi-package.json output '{dllFileName}' was not found under {buildRoot}.");
     }
 
     private static string ResolveCMake(string configured)
