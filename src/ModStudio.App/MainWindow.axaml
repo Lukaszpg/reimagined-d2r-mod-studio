@@ -16,6 +16,8 @@
     <StackPanel Grid.Column="1" VerticalAlignment="Top" Orientation="Horizontal" Margin="8,0,0,0">
      <ComboBox x:Name="ProfilePicker" Width="130" VerticalAlignment="Center" SelectedIndex="0"><ComboBoxItem Content="standard" /><ComboBoxItem Content="d2rl" /></ComboBox>
      <ComboBox x:Name="LaunchTargetPicker" Width="135" PlaceholderText="Game target" IsEnabled="False" VerticalAlignment="Center" ToolTip.Tip="Launch using D2R.exe (vanilla) or D2RLoader.exe. Configure the game folder in Run settings." />
+     <Button Content="Build settings" Click="BuildSettingsClicked" ToolTip.Tip="Configure optional GitHub branch/PR CMake builds and secure GitHub authentication" />
+     <ComboBox x:Name="BuildTypePicker" Width="94" VerticalAlignment="Center" SelectedIndex="0" ToolTip.Tip="CMake build type used by configured GitHub builds"><ComboBoxItem Content="Release" /><ComboBoxItem Content="Debug" /></ComboBox>
      <Button Content="Build" Click="BuildClicked" /><Button Content="Deploy" Click="DeployClicked" /><Button Content="▶ Play" Classes="accent" Click="PlayClicked" /><Button x:Name="StopButton" Content="■ Stop / Cancel" Click="StopClicked" IsVisible="False" />
     </StackPanel>
    </Grid>
