@@ -19,7 +19,6 @@ internal static class RemoteBuildTests
             "pull-request",
             "12",
             "d2rloader/plugins",
-            "",
             ["-DSOE_WARNINGS_AS_ERRORS=OFF"]);
         settings.Save(project);
         var loaded = CMakeBuildSettings.Load(project);
@@ -27,15 +26,15 @@ internal static class RemoteBuildTests
             && loaded.RevisionKind == settings.RevisionKind
             && loaded.Revision == settings.Revision
             && loaded.DeploySubdirectory == settings.DeploySubdirectory
-            && loaded.CMakeExecutable == settings.CMakeExecutable
             && (loaded.ConfigureArguments ?? []).SequenceEqual(settings.ConfigureArguments ?? []),
             "GitHub/CMake settings round trip without repository-owned CMake metadata");
 
         var settingsJson = File.ReadAllText(CMakeBuildSettings.SettingsFile(project));
         check(!settingsJson.Contains("CMakeSource", StringComparison.Ordinal)
             && !settingsJson.Contains("CMakeTarget", StringComparison.Ordinal)
-            && !settingsJson.Contains("DllRelativePath", StringComparison.Ordinal),
-            "Studio settings do not duplicate Charsi repository build metadata");
+            && !settingsJson.Contains("DllRelativePath", StringComparison.Ordinal)
+            && !settingsJson.Contains("CMakeExecutable", StringComparison.Ordinal),
+            "Studio settings do not duplicate repository build metadata or persist a manual CMake path");
 
         var repository = GitHubRepository.Parse(settings.Repository);
         check(repository.Owner == "Lukaszpg" && repository.Name == "d2rl-sanctuary-of-exile", "GitHub repository URLs normalize to owner/name");
