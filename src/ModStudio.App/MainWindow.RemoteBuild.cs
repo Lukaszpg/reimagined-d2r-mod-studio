@@ -13,6 +13,7 @@ public partial class MainWindow
         (BuildTypePicker.SelectedItem as ComboBoxItem)?.Content?.ToString() == "Debug" ? "Debug" : "Release";
 
     private bool remoteStatusChecking;
+    private bool remoteStatusRefreshPending;
     private DateTime remoteStatusCheckedUtc = DateTime.MinValue;
 
     private void InitializeRemoteDeploymentStatus()
@@ -43,7 +44,11 @@ public partial class MainWindow
             SetPlayRevisionState(null, "Build, deploy and launch the configured game target.");
             return;
         }
-        if (remoteStatusChecking) return;
+        if (remoteStatusChecking)
+        {
+            if (force) remoteStatusRefreshPending = true;
+            return;
+        }
         if (!force && DateTime.UtcNow - remoteStatusCheckedUtc < TimeSpan.FromSeconds(15)) return;
 
         var currentProject = project;
@@ -82,7 +87,15 @@ public partial class MainWindow
             if (project == currentProject && Profile == profile)
                 SetPlayRevisionState(false, "Could not verify whether the selected GitHub revision is deployed: " + ex.Message);
         }
-        finally { remoteStatusChecking = false; }
+        finally
+        {
+            remoteStatusChecking = false;
+            if (remoteStatusRefreshPending)
+            {
+                remoteStatusRefreshPending = false;
+                _ = RefreshRemoteDeploymentStatusAsync(true);
+            }
+        }
     }
 
     private async void BuildSettingsClicked(object? sender, RoutedEventArgs e)
