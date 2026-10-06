@@ -22,9 +22,6 @@ internal sealed class BuildSettingsWindow : Window
     private readonly TextBox repository = new() { Width = 430 };
     private readonly ComboBox revisionKind = new() { ItemsSource = new[] { "Branch", "Pull request" }, Width = 160 };
     private readonly ComboBox revision = new() { Width = 430, MaxDropDownHeight = 320, PlaceholderText = "Loading from GitHub…" };
-    private readonly TextBox cmakeSource = new() { Width = 430 };
-    private readonly TextBox cmakeTarget = new() { Width = 430 };
-    private readonly TextBox dllPath = new() { Width = 430 };
     private readonly TextBox deploySubdirectory = new() { Width = 430 };
     private readonly TextBox cmakeExecutable = new() { Width = 430 };
     private readonly TextBox configureArguments = new() { Width = 430 };
@@ -34,21 +31,18 @@ internal sealed class BuildSettingsWindow : Window
 
     public BuildSettingsWindow(CMakeBuildSettings current)
     {
-        Title = "Build settings"; Width = 760; Height = 760; MinWidth = 620; MinHeight = 620; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Title = "Build settings"; Width = 760; Height = 690; MinWidth = 620; MinHeight = 560; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         var panel = new StackPanel { Margin = new(26), Spacing = 12 };
         panel.Children.Add(new TextBlock { Text = "GitHub / CMake build", FontSize = 24, Foreground = Accent });
         panel.Children.Add(new TextBlock
         {
             Foreground = Muted,
             TextWrapping = TextWrapping.Wrap,
-            Text = "Optional per-project plugin build. Build resolves the selected branch or pull request to an immutable commit SHA, downloads that source into .studio, and runs CMake locally. Deploy attaches the DLL to Studio's ordinary build so the existing deployment journal writes and rolls back mod data + DLL as one transaction. Leave Repository empty to disable this integration."
+            Text = "Optional per-project plugin build. Build resolves the selected branch or pull request to an immutable commit SHA, downloads that source into .studio, reads its charsi-package.json build contract, and runs CMake locally. Deploy attaches the resulting DLL to Studio's ordinary build so the existing deployment journal writes and rolls back mod data + DLL as one transaction. Leave Repository empty to disable this integration."
         });
 
         repository.Text = current.Repository;
         revisionKind.SelectedIndex = current.RevisionKind == "pull-request" ? 1 : 0;
-        cmakeSource.Text = current.CMakeSource;
-        cmakeTarget.Text = current.CMakeTarget;
-        dllPath.Text = current.DllRelativePath;
         deploySubdirectory.Text = current.DeploySubdirectory;
         cmakeExecutable.Text = current.CMakeExecutable;
         configureArguments.Text = JsonSerializer.Serialize(current.ConfigureArguments ?? []);
@@ -60,13 +54,10 @@ internal sealed class BuildSettingsWindow : Window
         panel.Children.Add(Row("Revision", revisionRow));
         panel.Children.Add(new TextBlock { Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Text = "Branches and open pull requests are fetched from GitHub. Changing the revision type reloads this list. A build resolves the selected value again immediately before downloading, so the log records the exact commit SHA that was built." });
 
-        panel.Children.Add(Row("CMake source", cmakeSource));
-        panel.Children.Add(Row("CMake target", cmakeTarget));
-        panel.Children.Add(Row("DLL in build folder", dllPath));
         panel.Children.Add(Row("DLL deploy subfolder", deploySubdirectory));
         panel.Children.Add(Row("CMake executable", cmakeExecutable));
         panel.Children.Add(Row("Configure arguments", configureArguments));
-        panel.Children.Add(new TextBlock { Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Text = "CMake source defaults to “.”. DLL path may contain {config}. Deploy subfolder is relative to the existing Run settings deployment folder (normally d2rloader/plugins). Leave CMake executable empty to discover it from PATH or Visual Studio. Configure arguments use a JSON string array." });
+        panel.Children.Add(new TextBlock { Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Text = "CMake source, target and DLL name come from charsi-package.json in the selected revision, exactly as in Charsi. Deploy subfolder is relative to the existing Run settings deployment folder (normally d2rloader/plugins). Leave CMake executable empty to discover it from PATH or Visual Studio. Configure arguments use a JSON string array." });
 
         panel.Children.Add(new TextBlock { Text = "GITHUB TOKEN", Foreground = Accent, FontSize = 11, FontWeight = FontWeight.SemiBold, Margin = new(0, 8, 0, 0) });
         panel.Children.Add(Row("New token", token));
@@ -191,9 +182,6 @@ internal sealed class BuildSettingsWindow : Window
                 (repository.Text ?? "").Trim(),
                 kind,
                 selected.Value,
-                string.IsNullOrWhiteSpace(cmakeSource.Text) ? "." : cmakeSource.Text!.Trim(),
-                (cmakeTarget.Text ?? "").Trim(),
-                (dllPath.Text ?? "").Trim(),
                 (deploySubdirectory.Text ?? "").Trim(),
                 (cmakeExecutable.Text ?? "").Trim(),
                 extra);
