@@ -237,6 +237,7 @@ try
         for (int i = 0; i < 50 && run.Running; i++) await Task.Delay(20);
         Check(!run.Running, "Stop terminates only the owned child process");
     }
+    RemoteBuildTests.Run(root, Check, Throws);
     FeatureTests.Run(root, Check, Throws, Write);
     CellReferenceTests.Run(root, Check);
     WorkspaceSearchTests.Run(root, Check, Throws);
