@@ -86,7 +86,7 @@ public sealed record CharsiPackageManifest(
         Require(!string.IsNullOrWhiteSpace(OutputName), $"{FileName} outputName is required.");
         if (CMakeSource != ".") SafeRelative(CMakeBuildSettings.NormalizeRelative(CMakeSource));
         var output = OutputName.Trim();
-        Require(Path.GetFileName(output) == output && output is not "." and not "..", $"{FileName} outputName must be a file name, not a path.");
+        Require(!output.Contains('/') && !output.Contains('\\\\') && Path.GetFileName(output) == output && output is not "." and not "..", $"{FileName} outputName must be a file name, not a path.");
         Require(output.IndexOfAny(Path.GetInvalidFileNameChars()) < 0, $"{FileName} outputName contains invalid file-name characters.");
     }
 
