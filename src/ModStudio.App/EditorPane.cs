@@ -61,6 +61,7 @@ public sealed partial class EditorPane : Grid
     /// <summary>Live JSON check of the source editor: the offending line is marked in the editor and named in the status line while typing, before Apply.</summary>
     private readonly SourceCodeEditing.ErrorMarks sourceErrors;
     private readonly DispatcherTimer sourceCheck = new() { Interval = TimeSpan.FromMilliseconds(350) };
+    private readonly DispatcherTimer filterTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
     public IReadOnlyList<(int Line, int Column, string Message)> SourceErrors => sourceErrors.Errors;
     private double appliedTableFontSize = ViewSettings.DefaultTableFontSize;
     private bool viewSettingsStale;
@@ -155,7 +156,7 @@ public sealed partial class EditorPane : Grid
     private double cellTipLayerWidth = -1;
     private readonly TextBlock columnsLabel = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new(8, 0, 4, 0) };
     private readonly ComboBox skillClassDropdown = new() { Width = 145, VerticalAlignment = VerticalAlignment.Center, Margin = new(5, 0, 0, 0) };
-    private readonly TextBox filter = new() { PlaceholderText = "Filter rows (Enter)", Width = 180, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBox filter = new() { PlaceholderText = "Filter rows", Width = 180, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock note = new() { TextWrapping = TextWrapping.Wrap };
     /// <summary>The status line under the table or source view (record counts, the cell being edited, source errors).</summary>
     public string StatusText => note.Text ?? "";
@@ -213,7 +214,9 @@ public sealed partial class EditorPane : Grid
         sourceErrors = SourceCodeEditing.AttachErrorMarks(Source);
         sourceCheck.Tick += (_, _) => CheckSource();
         Source.TextChanged += (_, _) => { sourceCheck.Stop(); sourceCheck.Start(); };
-        DetachedFromVisualTree += (_, _) => sourceCheck.Stop();
+        filterTimer.Tick += (_, _) => { filterTimer.Stop(); try { Refresh(keepScroll: false); } catch (Exception ex) { error(ex); } };
+        filter.TextChanged += (_, _) => { filterTimer.Stop(); filterTimer.Start(); };
+        DetachedFromVisualTree += (_, _) => { sourceCheck.Stop(); filterTimer.Stop(); };
         RowDefinitions = new("Auto,*,Auto");
         var toolbar = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new(6) };
         void Button(string label, Action action) { var b = EditorToolbarIcons.Create(label); b.Click += (_, _) => { try { action(); } catch (Exception e) { error(e); } }; toolbar.Children.Add(b); }
@@ -244,7 +247,7 @@ public sealed partial class EditorPane : Grid
         toolbar.Children.Add(filter); toolbar.Children.Add(columnsLabel);
         InitializeSkillClassDropdown(toolbar);
         InitializeItemCardToggle(toolbar);
-        filter.KeyDown += async (_, e) => { if (e.Key == Key.Enter) { try { await FilterAsync(); } catch (Exception ex) { error(ex); } e.Handled = true; } };
+        filter.KeyDown += (_, e) => { if (e.Key == Key.Escape) { filter.Text = ""; e.Handled = true; } };
         Children.Add(toolbar);
         FrozenGrid.IsVisible = false; FrozenGrid.HeadersVisibility = DataGridHeadersVisibility.All;
         FrozenGrid.BorderBrush = new SolidColorBrush(Color.Parse("#D8BC86")); FrozenGrid.BorderThickness = new(0, 0, 0, 1);
@@ -709,6 +712,13 @@ public sealed partial class EditorPane : Grid
             (Source.IsVisible && Document.HasEditLocks ? " · Unlock edits to change Source" : "");
     }
     public Task FilterAsync() { Refresh(keepScroll: false); return Task.CompletedTask; }
+    public bool FocusRowFilter()
+    {
+        if (Document.Table == null) return false;
+        filter.Focus();
+        filter.SelectAll();
+        return true;
+    }
     public void RefreshRowValues(int row) => RefreshRowValues([row]);
     public void RefreshRowValues(IEnumerable<int> rows)
     {
