@@ -23,7 +23,6 @@ internal sealed class BuildSettingsWindow : Window
     private readonly ComboBox revisionKind = new() { ItemsSource = new[] { "Branch", "Pull request" }, Width = 160 };
     private readonly ComboBox revision = new() { Width = 430, MaxDropDownHeight = 320, PlaceholderText = "Loading from GitHub…" };
     private readonly TextBox deploySubdirectory = new() { Width = 430 };
-    private readonly TextBox cmakeExecutable = new() { Width = 430 };
     private readonly TextBox configureArguments = new() { Width = 430 };
     private readonly TextBox token = new() { Width = 430, PasswordChar = '●' };
     private readonly TextBlock status = new() { TextWrapping = TextWrapping.Wrap, Foreground = Muted };
@@ -44,7 +43,6 @@ internal sealed class BuildSettingsWindow : Window
         repository.Text = current.Repository;
         revisionKind.SelectedIndex = current.RevisionKind == "pull-request" ? 1 : 0;
         deploySubdirectory.Text = current.DeploySubdirectory;
-        cmakeExecutable.Text = current.CMakeExecutable;
         configureArguments.Text = JsonSerializer.Serialize(current.ConfigureArguments ?? []);
 
         panel.Children.Add(Row("Repository", repository));
@@ -55,9 +53,8 @@ internal sealed class BuildSettingsWindow : Window
         panel.Children.Add(new TextBlock { Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Text = "Branches and open pull requests are fetched from GitHub. Changing the revision type reloads this list. A build resolves the selected value again immediately before downloading, so the log records the exact commit SHA that was built." });
 
         panel.Children.Add(Row("DLL deploy subfolder", deploySubdirectory));
-        panel.Children.Add(Row("CMake executable", cmakeExecutable));
         panel.Children.Add(Row("Configure arguments", configureArguments));
-        panel.Children.Add(new TextBlock { Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Text = "CMake source, target and DLL name come from charsi-package.json in the selected revision, exactly as in Charsi. Deploy subfolder is relative to the existing Run settings deployment folder (normally d2rloader/plugins). Leave CMake executable empty to discover it from PATH or Visual Studio. Configure arguments use a JSON string array." });
+        panel.Children.Add(new TextBlock { Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Text = "CMake source, target and DLL name come from charsi-package.json in the selected revision, exactly as in Charsi. CMake itself is detected automatically from PATH or Visual Studio. Deploy subfolder is relative to the existing Run settings deployment folder (normally d2rloader/plugins). Configure arguments use a JSON string array." });
 
         panel.Children.Add(new TextBlock { Text = "GITHUB TOKEN", Foreground = Accent, FontSize = 11, FontWeight = FontWeight.SemiBold, Margin = new(0, 8, 0, 0) });
         panel.Children.Add(Row("New token", token));
@@ -183,7 +180,6 @@ internal sealed class BuildSettingsWindow : Window
                 kind,
                 selected.Value,
                 (deploySubdirectory.Text ?? "").Trim(),
-                (cmakeExecutable.Text ?? "").Trim(),
                 extra);
             next.Validate();
             return next;
