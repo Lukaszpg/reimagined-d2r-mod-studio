@@ -86,7 +86,7 @@ public static class RemoteCMakeBuildService
         Require(Hash(File.ReadAllBytes(target)) == artifact.Sha256, "Attached DLL hash mismatch.");
 
         var nextFiles = build.Files.Append(new BuildFile(relative, artifact.Sha256, file.Length)).OrderBy(f => f.Path, StringComparer.OrdinalIgnoreCase).ToList();
-        var next = build with { Files = nextFiles };
+        var next = build with { Files = nextFiles, SourceRepository = artifact.Revision.Repository, SourceRevisionSha = artifact.Revision.Sha };
         AtomicWrite(manifest, JsonSerializer.SerializeToUtf8Bytes(next, Pretty));
         progress?.Invoke($"Attached DLL to transactional deployment · {relative} · {artifact.BuildType} · {artifact.Revision.ShortSha}");
         return next;
