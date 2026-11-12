@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using Avalonia.Controls;
+using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using ModStudio.Core;
 using static ModStudio.Core.Storage;
 
@@ -28,5 +31,25 @@ public partial class MainWindow
         Require(pane.Document.Table!.Records.Count == rows + 3, "Undo after deleting inserted rows did not restore them.");
         pane.Document.Undo(); pane.Document.Undo(); pane.Refresh(); await Task.Delay(60);
         Require(pane.Document.Table!.Records.Count == rows && pane.Document.Diagnostics.All(d => d.Severity != "Warning") && !pane.Document.IsDirty, "Undoing the inserts did not restore the table and clear the advisory.");
+        var dialog = new AddRowsWindow();
+        var prompt = dialog.ShowDialog<int?>(this); await Task.Delay(60);
+        var input = dialog.GetVisualDescendants().OfType<TextBox>().Single();
+        var add = dialog.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Add rows"));
+        input.Text = "0"; Require(!add.IsEnabled, "Add rows must reject zero.");
+        input.Text = "100001"; Require(!add.IsEnabled, "Add rows must reject excessive counts.");
+        input.Text = "3"; Require(add.IsEnabled, "Add rows must accept a valid count.");
+        add.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var count = await prompt;
+        Require(count == 3, "Add rows dialog did not return the requested count.");
+
+        pane.InsertRows(pane.Document.Table!.Records.Count, count!.Value); await Task.Delay(60);
+        Require(pane.Document.Table!.Records.Count == rows + 3 && pane.SelectedRow == rows &&
+            pane.SelectedCells.ToHashSet().SetEquals([(rows, 30), (rows + 1, 30), (rows + 2, 30)]),
+            "Bulk append did not select the requested blank rows in the current column.");
+        Require(pane.Document.Diagnostics.All(d => d.Severity != "Warning") && pane.TableGrid.Columns.SequenceEqual(gridColumns),
+            "Bulk append should not shift original row IDs or rebuild grid columns.");
+        pane.Document.Undo(); pane.Refresh();
+        Require(pane.Document.Table!.Records.Count == rows && !pane.Document.IsDirty, "Bulk append must undo in one step.");
+
     }
 }

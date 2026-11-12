@@ -491,6 +491,7 @@ public sealed partial class EditorPane : Grid
             .. transform,
             Item($"Add {added} above", () => InsertRows(above, rowsToAdd), addable && rows.Length > 0),
             Item($"Add {added} below", () => InsertRows(below, rowsToAdd), addable),
+            Item("Add rows...", () => { _ = AddRowsDialogAsync(); }, addable),
             Item("Clone and Append", () => CloneSelectedRows(append: true), addable && rows.Length > 0),
             Item("Clone and Insert", () => CloneSelectedRows(append: false), addable && rows.Length > 0 &&
                 (below == table.Records.Count || !Document.LockedRows.Contains(below))),
@@ -507,6 +508,17 @@ public sealed partial class EditorPane : Grid
             Item($"{(frozenColumns.Contains(Array.IndexOf(Document.Table!.Columns, SelectedColumn)) ? "Unfreeze" : "Freeze")} column: {SelectedColumn}", () => ToggleFrozenColumn(SelectedColumn)),
             Item($"{(Document.LockedColumns.Contains(SelectedColumn) ? "Unlock" : "Lock")} column: {SelectedColumn} against edits", ToggleColumnLock)
         ] };
+    }
+    /// <summary>Appends a user-specified number of blank rows without shifting existing game row IDs.</summary>
+    private async Task AddRowsDialogAsync()
+    {
+        try
+        {
+            if (TopLevel.GetTopLevel(this) is not Window owner) return;
+            var count = await new AddRowsWindow().ShowDialog<int?>(owner);
+            if (count is > 0 && Document.Table is { } table) InsertRows(table.Records.Count, count.Value);
+        }
+        catch (Exception ex) { error(ex); }
     }
     private void BeginInput(DataGrid grid)
     {

@@ -76,7 +76,7 @@ internal static class RemoteBuildTests
             && attached.Files.Single().Sha256 == artifact.Sha256
             && attached.SourceRepository == artifact.Revision.Repository
             && attached.SourceRevisionSha == artifact.Revision.Sha
-            && File.ReadAllBytes(target).SequenceEqual([1, 2, 3, 4, 5]),
+            && File.ReadAllBytes(target).SequenceEqual(new byte[] { 1, 2, 3, 4, 5 }),
             "Remote DLL and exact source revision are attached to the ordinary Studio build transaction");
         var savedBuild = System.Text.Json.JsonSerializer.Deserialize<BuildResult>(File.ReadAllText(Inside(buildFolder, "build.json")), Pretty)!;
         check(savedBuild.Files.Single().Path == relativeDll

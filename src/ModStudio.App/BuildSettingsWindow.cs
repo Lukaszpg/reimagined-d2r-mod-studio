@@ -178,7 +178,7 @@ internal sealed class BuildSettingsWindow : Window
             var next = new CMakeBuildSettings(
                 (repository.Text ?? "").Trim(),
                 kind,
-                selected.Value,
+                selected!.Value,
                 (deploySubdirectory.Text ?? "").Trim(),
                 extra);
             next.Validate();
