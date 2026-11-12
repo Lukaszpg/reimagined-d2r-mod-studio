@@ -84,7 +84,7 @@ public record RunSettings(string DeploymentDirectory = "", string Executable = "
     }
     public void Save(ModProject project, string profile) => AtomicWrite(SettingsFile(project, profile), JsonSerializer.SerializeToUtf8Bytes(this, Pretty));
 }
-public record DeploymentManifest(string ProjectId, string BuildId, string Profile, List<BuildFile> Files);
+public record DeploymentManifest(string ProjectId, string BuildId, string Profile, List<BuildFile> Files, string? SourceRepository = null, string? SourceRevisionSha = null);
 public record JournalEntry(string Path, string? Before, string? After);
 public record DeploymentJournal(string ProjectId, List<JournalEntry> Entries);
 public sealed class DeploymentOwnershipConflict(string target, string previousProjectId, string ownerHash)
@@ -101,6 +101,17 @@ public static class DeploymentService
     private const string Transaction = ".studio-transaction";
     /// <summary>The mod name a deployment folder stands for: its own name. The game loads mods/&lt;name&gt;/&lt;name&gt;.mpq, so the build must be laid out for the same name.</summary>
     public static string ModName(string target) => Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(target)));
+    /// <summary>Reads the last committed Studio deployment identity without changing the deployment.</summary>
+    public static DeploymentManifest? ReadManifest(string target)
+    {
+        if (string.IsNullOrWhiteSpace(target)) return null;
+        try
+        {
+            var owner = Inside(Path.GetFullPath(target), Owner);
+            return File.Exists(owner) ? JsonSerializer.Deserialize<DeploymentManifest>(File.ReadAllText(owner), Pretty) : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or JsonException) { return null; }
+    }
     public static void Deploy(ModProject project, BuildResult build, string target, CancellationToken token = default, Action<string>? progress = null, bool overwriteDestination = false, string? reviewedOwnerHash = null)
     {
         using var buildLock = BuildCache.Lock(project); using var pathChecks = PathChecks(); BuildCache.LoadFingerprints(project);
@@ -144,7 +155,7 @@ public static class DeploymentService
             if (overwriteDestination && next.ContainsKey(owned.Path)) continue;
             SafeRelative(owned.Path); if (deployed.ContainsKey(owned.Path)) Require(DeployedHash(owned.Path) == owned.Sha256, $"Deployed file was edited outside Studio: {owned.Path}. Preserve/import it before deploying.");
         }
-        var ownership = JsonSerializer.SerializeToUtf8Bytes(new DeploymentManifest(project.Id, build.Id, build.Profile, build.Files), Pretty);
+        var ownership = JsonSerializer.SerializeToUtf8Bytes(new DeploymentManifest(project.Id, build.Id, build.Profile, build.Files, build.SourceRepository, build.SourceRevisionSha), Pretty);
         var all = build.Files.Select(f => f.Path).Concat(previous?.Files.Select(f => f.Path) ?? []).Append(Owner).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var entries = all.Select(relative => new JournalEntry(relative, DeployedHash(relative), relative == Owner ? Hash(ownership) : next.GetValueOrDefault(relative)?.Sha256)).Where(e => e.Before != e.After).ToList();
         Directory.CreateDirectory(transaction);
@@ -235,7 +246,8 @@ public sealed class RunController : IDisposable
         foreach (var arg in new[] { "-mod", modName, "-txt" }.Concat(settings.Arguments ?? [])) start.ArgumentList.Add(arg);
         return start;
     }
-    public async Task<BuildResult> ExecuteAsync(ModProject project, string profile, RunSettings settings, bool deploy, bool play, CancellationToken token, Action<string>? progress = null, Func<DeploymentOwnershipConflict, Task<bool>>? reviewOwnership = null)
+    public async Task<BuildResult> ExecuteAsync(ModProject project, string profile, RunSettings settings, bool deploy, bool play, CancellationToken token, Action<string>? progress = null,
+        Func<DeploymentOwnershipConflict, Task<bool>>? reviewOwnership = null, Func<BuildResult, CancellationToken, Task<BuildResult>>? prepareDeployment = null)
     {
         Require(await gate.WaitAsync(0, token), "Another build/deployment is already running.");
         try
@@ -244,6 +256,7 @@ public sealed class RunController : IDisposable
             var start = play ? CreateStartInfo(project, settings) : null;
             // Build for the folder the mod will be deployed to, so a second deployment folder such as mods/MyMod-test gets its own .mpq name.
             var build = await Task.Run(() => BuildService.Build(project, profile, token, progress, settings.ModName(project)), token);
+            if (deploy && prepareDeployment != null) build = await prepareDeployment(build, token);
             if (deploy)
             {
                 try { await Task.Run(() => DeploymentService.Deploy(project, build, settings.DeploymentDirectory, token, progress, settings.OverwriteDestination), token); }

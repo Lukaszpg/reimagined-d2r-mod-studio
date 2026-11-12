@@ -54,6 +54,30 @@ public partial class MainWindow
     private bool IsExternalTable(string path) => project != null &&
         (Contains(System.IO.Path.Combine(project.Root, "source/tables"), path) && path.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
          Contains(System.IO.Path.Combine(project.Root, "data/global/excel"), path) && path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase));
+    private ProjectFileEditor? ProjectFileEditorFor(string path)
+    {
+        if (project == null) return null;
+        var settings = StudioPreferences.Load(StudioPreferences.DefaultFile).ExternalEditor;
+        return (settings.ProjectFileEditors ?? []).FirstOrDefault(editor => editor.Matches(project, path));
+    }
+    private bool HasProjectFileEditor(string path) => ProjectFileEditorFor(path) != null;
+    private void RefreshProjectFileEditorActions()
+    {
+        foreach (var pane in tabs.Select(tab => tab.Content).OfType<EditorPane>()) pane.RefreshExternalEditorAction();
+    }
+    private async Task OpenProjectFileEditorAsync(string source)
+    {
+        try
+        {
+            Require(project != null && operation == null && !externalBusy, "Open a project and wait for the current operation.");
+            var mapping = ProjectFileEditorFor(source);
+            Require(mapping != null, "No external editor is configured for this project file.");
+            if (!await SaveAllAsync()) return;
+            using var process = Process.Start(mapping!.StartInfo(project!));
+            Status.Text = $"Opened {Relative(project!.Root, source)} in its configured external editor.";
+        }
+        catch (Exception ex) { ShowError(ex); }
+    }
     private MenuItem CreateExternalEditorItem(string? source = null)
     {
         var item = new MenuItem { Header = source == null ? "Open External Editor Workspace…" : "Open External Editor…", IsEnabled = source == null || IsExternalTable(source) };
@@ -150,18 +174,19 @@ public partial class MainWindow
     }
     private async Task<bool> ExternalEditorSettingsAsync()
     {
+        Require(project != null, "Open a project first.");
         var prefs = StudioPreferences.Load(StudioPreferences.DefaultFile); var current = prefs.ExternalEditor;
-        var dialog = new Window { Title = "External editor", Width = 680, Height = 620, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var dialog = new Window { Title = "External editor", Width = 720, Height = 780, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var panel = new StackPanel { Margin = new(20), Spacing = 10 };
-        panel.Children.Add(new TextBlock { Text = "Use any TXT editor for individual tables or the deployed Excel folder. Leave the executable empty to use the system default application (folders open in the file manager).", TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = "Use any TXT editor for individual tables or the deployed Excel folder. Leave the executable empty to use the system default application (folders open in the file manager). Project-file editors below are direct per-file launch shortcuts and do not use the TXT synchronization workflow.", TextWrapping = Avalonia.Media.TextWrapping.Wrap });
         TextBox Field(string label, string value, bool multiline = false)
         {
             panel.Children.Add(new TextBlock { Text = label }); var box = new TextBox { Text = value, AcceptsReturn = multiline, MinHeight = multiline ? 70 : 30 }; panel.Children.Add(box); return box;
         }
-        var executable = Field("Editor executable", current.Executable);
+        var executable = Field("TXT / workspace editor executable", current.Executable);
         var browse = new Button { Content = "Browse editor…" }; panel.Children.Add(browse);
         browse.Click += async (_, _) => { var files = await dialog.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Choose external editor", AllowMultiple = false }); if (files.Count > 0) executable.Text = files[0].TryGetLocalPath(); };
-        var fileArgs = Field("File arguments · one argument per line", string.Join("\n", current.FileArguments ?? ["{file}"]), true);
+        var fileArgs = Field("TXT file arguments · one argument per line", string.Join("\n", current.FileArguments ?? ["{file}"]), true);
         var workspaceArgs = Field("Workspace arguments · one argument per line", string.Join("\n", current.WorkspaceArguments ?? ["{workspace}"]), true);
         executable.TextChanged += (_, _) =>
         {
@@ -169,16 +194,100 @@ public partial class MainWindow
         };
         panel.Children.Add(new TextBlock { Text = "{file}: selected TXT. {workspace}: deployed Excel folder. {files}: each TXT in that folder as a separate argument. Do not add quotes. TXTeditor accepts file paths; use {files} to open all workspace tables.", TextWrapping = Avalonia.Media.TextWrapping.Wrap });
         var preset = new Button { Content = "Use TXTeditor arguments" }; preset.Click += (_, _) => { fileArgs.Text = "{file}"; workspaceArgs.Text = "{files}"; }; panel.Children.Add(preset);
-        var error = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap }; panel.Children.Add(error);
+
+        panel.Children.Add(new Separator { Margin = new(0, 8) });
+        panel.Children.Add(new TextBlock { Text = "PROJECT FILE EDITORS", FontWeight = Avalonia.Media.FontWeight.SemiBold });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Map any file inside the current project to an external application. A matching open file gets an Open external editor icon as the last square toolbar action. Arguments are passed exactly as separate arguments; use {file}, {fileDir}, or {project}.",
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        });
+        var error = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+        var mappingHost = new StackPanel { Spacing = 8 };
+        panel.Children.Add(mappingHost);
+        var mappingRows = new List<(StackPanel Panel, TextBox ProjectFile, TextBox Executable, TextBox Arguments)>();
+
+        void AddMapping(ProjectFileEditor? configured = null)
+        {
+            var card = new StackPanel { Spacing = 6, Margin = new(0, 4, 0, 8) };
+            var heading = new DockPanel();
+            var remove = new Button { Content = "Remove", HorizontalAlignment = HorizontalAlignment.Right };
+            DockPanel.SetDock(remove, Dock.Right); heading.Children.Add(remove);
+            heading.Children.Add(new TextBlock { Text = "Project file editor", VerticalAlignment = VerticalAlignment.Center });
+            card.Children.Add(heading);
+
+            var projectFile = new TextBox { Text = configured?.ProjectFile ?? "", PlaceholderText = "Project-relative file, e.g. data/hd/ui/example.json" };
+            card.Children.Add(projectFile);
+            var browseProject = new Button { Content = "Browse project file…", HorizontalAlignment = HorizontalAlignment.Left };
+            card.Children.Add(browseProject);
+
+            var app = new TextBox { Text = configured?.Executable ?? "", PlaceholderText = "External application executable" };
+            card.Children.Add(app);
+            var browseApp = new Button { Content = "Browse application…", HorizontalAlignment = HorizontalAlignment.Left };
+            card.Children.Add(browseApp);
+
+            var arguments = new TextBox { Text = string.Join("\n", configured?.Arguments ?? ["{file}"]), AcceptsReturn = true, MinHeight = 64 };
+            card.Children.Add(new TextBlock { Text = "Arguments · one argument per line" });
+            card.Children.Add(arguments);
+            card.Children.Add(new Separator());
+
+            mappingHost.Children.Add(card);
+            var row = (card, projectFile, app, arguments);
+            mappingRows.Add(row);
+            remove.Click += (_, _) => { mappingRows.Remove(row); mappingHost.Children.Remove(card); };
+            browseProject.Click += async (_, _) =>
+            {
+                try
+                {
+                    var files = await dialog.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Choose a project file", AllowMultiple = false });
+                    var selected = files.FirstOrDefault()?.TryGetLocalPath();
+                    if (selected == null) return;
+                    Require(Contains(project!.Root, selected) && !Contains(project.Cache, selected), "Choose a file inside the current project, outside .studio.");
+                    projectFile.Text = Relative(project.Root, selected);
+                    error.Text = "";
+                }
+                catch (Exception ex) { error.Text = ex.Message; }
+            };
+            browseApp.Click += async (_, _) =>
+            {
+                var files = await dialog.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Choose external application", AllowMultiple = false });
+                if (files.Count > 0) app.Text = files[0].TryGetLocalPath();
+            };
+        }
+
+        foreach (var mapping in current.ProjectFileEditors ?? []) AddMapping(mapping);
+        var addMapping = new Button { Content = "Add project file editor", HorizontalAlignment = HorizontalAlignment.Left };
+        addMapping.Click += (_, _) => AddMapping();
+        panel.Children.Add(addMapping);
+        panel.Children.Add(error);
+
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 }; var save = new Button { Content = "Save" }; var cancel = new Button { Content = "Cancel" }; buttons.Children.Add(save); buttons.Children.Add(cancel); panel.Children.Add(buttons);
         cancel.Click += (_, _) => dialog.Close(false);
         save.Click += (_, _) =>
         {
             try
             {
-                Require(string.IsNullOrWhiteSpace(executable.Text) || File.Exists(executable.Text), "Choose an existing executable.");
+                Require(string.IsNullOrWhiteSpace(executable.Text) || File.Exists(executable.Text), "Choose an existing TXT/workspace editor executable.");
                 string[] Args(TextBox box) => (box.Text ?? "").Split('\n').Select(s => s.TrimEnd('\r')).Where(s => s.Length > 0).ToArray();
-                prefs.ExternalEditor = new(executable.Text?.Trim() ?? "", Args(fileArgs), Args(workspaceArgs), true); prefs.Save(StudioPreferences.DefaultFile); dialog.Close(true);
+
+                var mappings = new List<ProjectFileEditor>();
+                var resolved = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+                foreach (var row in mappingRows)
+                {
+                    if (string.IsNullOrWhiteSpace(row.ProjectFile.Text) && string.IsNullOrWhiteSpace(row.Executable.Text)) continue;
+                    Require(!string.IsNullOrWhiteSpace(row.ProjectFile.Text), "Choose a project file for every project-file editor.");
+                    Require(!string.IsNullOrWhiteSpace(row.Executable.Text), "Choose an executable for every project-file editor.");
+                    var candidate = new ProjectFileEditor(row.ProjectFile.Text!.Trim(), row.Executable.Text!.Trim(), Args(row.Arguments));
+                    candidate.Validate(project!);
+                    var target = candidate.ResolveFile(project!);
+                    Require(resolved.Add(target), "Only one project-file external editor can be configured for the same file.");
+                    mappings.Add(candidate with { ProjectFile = Relative(project!.Root, target), Arguments = candidate.Arguments is { Length: > 0 } ? candidate.Arguments : ["{file}"] });
+                }
+
+                prefs.ExternalEditor = new(executable.Text?.Trim() ?? "", Args(fileArgs), Args(workspaceArgs), true, mappings.ToArray());
+                prefs.Save(StudioPreferences.DefaultFile);
+                RefreshProjectFileEditorActions();
+                dialog.Close(true);
             }
             catch (Exception e) { error.Text = e.Message; }
         };

@@ -30,6 +30,7 @@ internal static class EditorToolbarIcons
             "Schema…" => ("Edit table schema", "M8,3 H4 V21 H8 M16,3 H20 V21 H16 M9,8 H15 M9,12 H15 M9,16 H15"),
             "Preview" => ("Preview rendered Markdown", "M1,12 C6,2 18,2 23,12 C18,22 6,22 1,12 Z M16,12 A4,4 0 1 1 8,12 A4,4 0 1 1 16,12"),
             "Refresh preview" => ("Refresh Markdown preview", "M20,9 A9,9 0 1 0 21,15 M20,3 V9 H14"),
+            "Open external editor" => ("Open external editor", "M4,5 H11 M4,5 V19 H18 V12 M13,3 H21 V11 M21,3 L10,14"),
             _ => throw new ArgumentException("Unknown editor action: " + action)
         };
         var canvas = new Canvas { Width = 24, Height = 24 };

@@ -27,6 +27,25 @@ internal static class ExternalEditorTests
         check(nativeLaunch.ArgumentList.Contains(nativeFile) && nativeLaunch.ArgumentList.Contains(nativeBank) && nativeLaunch.ArgumentList.All(p => Contains(nativeWorkspace, p)) &&
             nativeLaunch.ArgumentList.Count == nativeLaunch.ArgumentList.Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal).Count(),
             "Native workspace launch passes each source TXT path once instead of deployment files");
+        var customProjectFile = Inside(nativeRoot, "docs/custom-layout.json"); AtomicWrite(customProjectFile, Utf8.GetBytes("{}"));
+        var customEditor = new ProjectFileEditor("docs/custom-layout.json", Environment.ProcessPath!, ["--open", "{file}", "--root", "{project}", "--dir", "{fileDir}"]);
+        check(customEditor.Matches(nativeProject, customProjectFile), "Project-file external editor matches its configured project-relative file");
+        var customLaunch = customEditor.StartInfo(nativeProject);
+        check(customLaunch.FileName == Environment.ProcessPath
+            && customLaunch.ArgumentList.SequenceEqual(["--open", customProjectFile, "--root", nativeRoot, "--dir", Path.GetDirectoryName(customProjectFile)!]),
+            "Project-file external editor expands file, file-directory and project placeholders as separate arguments");
+        throws(() => new ProjectFileEditor("example.txt", Environment.ProcessPath!).ResolveFile(nativeProject),
+            "Bare project file names must be unambiguous before an external editor mapping can use them");
+        var prefsFile = Inside(root, "external-editor-preferences.json");
+        var prefsRoundTrip = new StudioPreferences
+        {
+            ExternalEditor = new ExternalEditorSettings(ProjectFileEditors: [customEditor])
+        };
+        prefsRoundTrip.Save(prefsFile);
+        var loadedEditor = StudioPreferences.Load(prefsFile).ExternalEditor.ProjectFileEditors!.Single();
+        check(loadedEditor.ProjectFile == customEditor.ProjectFile && loadedEditor.Executable == customEditor.Executable
+            && (loadedEditor.Arguments ?? []).SequenceEqual(customEditor.Arguments ?? []),
+            "Project-file external editor mappings persist in Studio preferences without changing legacy TXT editor settings");
         check(File.ReadAllBytes(foreignOwner).SequenceEqual(ownerBefore) && !Directory.Exists(Inside(nativeProject.Cache, "builds")) && ExternalEditorSync.Load(nativeProject) == null, "Native external opening needs no build, deployment ownership change, or synchronization session");
         var generated = TableData.FromTsv(File.ReadAllBytes(nativeFile), "generated", "global/excel/generated.txt");
         var generatedFile = TableData.FileFor(nativeProject, "tables", "generated"); TableData.Write(generatedFile, generated);
